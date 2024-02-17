@@ -1,0 +1,13 @@
+[package]
+name = "rsapar"
+version = "0.1.0"
+authors = ["Guillermo Céspedes Tabárez <dev.dertin@gmail.com>"]
+edition = "2021"
+keywords =["schema", "parser", "csv", "fixed-width", "validation"]
+categories = ["encoding", "parser-implementations"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dertin/rsapar"
+documentation = "https://docs.rs/rsapar"
+rust-version = "1.76"
+
+[dependencies]
