@@ -1,6 +1,7 @@
 [package]
 name = "rsapar"
 version = "0.1.0"
+description = "RSaPar is a Rust library for schema-based parsing and validation of structured data files, inspired by JSaPar for Java."
 authors = ["Guillermo Céspedes Tabárez <dev.dertin@gmail.com>"]
 edition = "2021"
 keywords =["schema", "parser", "csv", "fixed-width", "validation"]
