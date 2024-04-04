@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema>
+  <fixedwidthschema lineseparator="\n">
+    <line linetype="Header" occurs="*" maxlength="20">
+      <cell name="Type" length="1">
+        <linecondition><match type="string" pattern="H"/></linecondition>
+      </cell>
+      <cell name="First name" length="5"/>
+      <cell name="Middle name" length="5">
+        <format type="string" pattern=".*"/>
+      </cell>
+      <cell name="Date" length="5">
+         <format type="date" pattern=".*"/>
+      </cell>
+    </line>
+    <line linetype="Person" occurs="*" maxlength="15">
+      <cell name="First name" length="5"/>
+      <cell name="Middle name" length="5">
+        <format type="string" pattern=".*"/>
+      </cell>
+      <cell name="Last name" length="5"/>
+    </line>
+    <!--<line linetype="Test" occurs="*" maxlength="502">
+      <cell name="First name" length="5"/>
+      <cell name="Middle name" length="5">
+        <format type="string" pattern=".*"/>
+      </cell>
+      <cell name="Last name" length="5"/>
+    </line>-->
+  </fixedwidthschema>
+</schema>
