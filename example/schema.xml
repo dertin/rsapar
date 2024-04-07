@@ -2,30 +2,35 @@
 <schema>
   <fixedwidthschema lineseparator="\n">
     <line linetype="Header" occurs="*" maxlength="20">
-      <cell name="Type" length="1">
+      <cell name="RecordType" length="1">
         <linecondition><match type="string" pattern="H"/></linecondition>
       </cell>
-      <cell name="First name" length="5"/>
-      <cell name="Middle name" length="5">
-        <format type="string" pattern=".*"/>
+      <cell name="RecordDate" length="8">
+         <format type="date" pattern="%Y%m%d"/>
       </cell>
-      <cell name="Date" length="5">
-         <format type="date" pattern=".*"/>
+      <cell name="FileName" length="11">
+        <format type="string" pattern=".*"/>
       </cell>
     </line>
-    <line linetype="Person" occurs="*" maxlength="15">
-      <cell name="First name" length="5"/>
-      <cell name="Middle name" length="5">
-        <format type="string" pattern=".*"/>
+    <line linetype="Body" occurs="*" maxlength="29">
+      <cell name="UserID" length="4"/>
+      <cell name="Amount" length="11">
+        <format type="number" pattern="#######0.00"/>
       </cell>
-      <cell name="Last name" length="5"/>
+      <cell name="email" length="14" alignment="right">
+        <format type="string" pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"/>
+      </cell>
     </line>
-    <!--<line linetype="Test" occurs="*" maxlength="502">
-      <cell name="First name" length="5"/>
-      <cell name="Middle name" length="5">
+    <line linetype="Footer" occurs="*" maxlength="21">
+      <cell name="RecordType" length="1">
+        <linecondition><match type="string" pattern="F"/></linecondition>
+      </cell>
+      <cell name="RecordCount" length="7">
         <format type="string" pattern=".*"/>
       </cell>
-      <cell name="Last name" length="5"/>
-    </line>-->
+      <cell name="TotalAmount" length="13">
+        <format type="number" pattern="#########0.00"/>
+      </cell>
+    </line>
   </fixedwidthschema>
 </schema>
