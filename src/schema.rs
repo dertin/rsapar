@@ -25,6 +25,8 @@ pub(crate) struct Cell {
     pub format: Option<Format>,
     pub linecondition_type: Option<String>,
     pub linecondition_pattern: Option<String>,
+    pub alignment: String,
+    pub padcharacter: String,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +35,8 @@ pub(crate) struct Line {
     pub maxlength: usize,
     pub occurs: String,
     pub cell: Vec<Cell>,
+    pub minlength: usize,
+    pub padcharacter: String,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +77,8 @@ impl Schema {
             maxlength: 0,
             occurs: String::new(),
             cell: vec![],
+            minlength: 0,
+            padcharacter: String::new(),
         };
         let mut in_line = false;
         let mut in_cell = false;
@@ -100,13 +106,21 @@ impl Schema {
                             maxlength: 0,
                             occurs: String::new(),
                             cell: vec![],
+                            minlength: 0,
+                            padcharacter: String::new(),
                         };
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "linetype" => temp_line.linetype = attr.value.clone(), //TODO: check unique name
-                                "occurs" => temp_line.occurs = attr.value.clone(),
+                                "linetype" => temp_line.linetype = attr.value.clone(), // TODO: check unique name
+                                "occurs" => temp_line.occurs = attr.value.clone(), // TODO: not used by the parser yet.
                                 "maxlength" => {
                                     temp_line.maxlength = attr.value.parse().unwrap_or(0)
+                                },
+                                "minlength" => { // TODO: not used by the parser yet.
+                                    temp_line.minlength = attr.value.parse().unwrap_or(0)
+                                },
+                                "padcharacter" => { // TODO: not used by the parser yet.
+                                    temp_line.padcharacter = attr.value.clone()
                                 }
                                 _ => (),
                             }
@@ -116,10 +130,15 @@ impl Schema {
                         in_cell = true;
                         let mut cell_name = String::new();
                         let mut cell_length = 0;
+                        let mut cell_alignment = String::new();
+                        let mut cell_padcharacter = String::new();
+
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "name" => cell_name = attr.value.clone(), //TODO: check unique name
+                                "name" => cell_name = attr.value.clone(), // TODO: check unique name
                                 "length" => cell_length = attr.value.parse().unwrap_or(0),
+                                "alignment" => cell_alignment = attr.value.clone(), // TODO: not used by the parser yet.
+                                "padcharacter" => cell_padcharacter = attr.value.clone(), // TODO: not used by the parser yet.
                                 _ => (),
                             }
                         }
@@ -134,6 +153,8 @@ impl Schema {
                             format: None,
                             linecondition_type: None,
                             linecondition_pattern: None,
+                            alignment: cell_alignment,
+                            padcharacter: cell_padcharacter,
                         });
                     }
                     "format" if in_cell => {

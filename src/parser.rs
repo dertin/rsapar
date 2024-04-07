@@ -7,10 +7,15 @@ use std::thread;
 
 use chrono::naive::NaiveDate;
 
+use crate::decimal_format;
 use crate::schema::{self, Line};
 
 type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize>>;
 
+#[derive(Debug)]
+pub struct ValidationError {
+    pub message: String,
+}
 pub struct ParserConfig {
     pub file_path: String,
     pub file_schema: String,
@@ -29,18 +34,33 @@ impl Parser {
         Self { config }
     }
 
-    pub fn start(&self) -> Result<()> {
+    pub fn start(&self) -> Result<(), Vec<(usize, ValidationError)>> {
         let (sender, receiver): (Sender<LineNumberAndText>, Receiver<LineNumberAndText>) =
             unbounded();
-        let file: File =
-            File::open(self.config.file_path.clone()).context("Failed to open file")?;
+        let file = File::open(self.config.file_path.clone()).context("Failed to open file");
+        let file = match file {
+            Ok(file) => file,
+            Err(err) => {
+                return Err(vec![(0, ValidationError {
+                    message: format!("Failed to open file: {}", err)
+                })]);
+            }
+            
+        };
         let reader = BufReader::new(file);
 
         let mut handles = vec![];
         for _ in 0..self.config.n_workers {
             let receiver = receiver.clone();
-            let schema: schema::Schema =
-                schema::Schema::load(&self.config.file_schema).context("Failed to load schema")?;
+            let schema = schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
+            let schema = match schema {
+                Ok(schema) => schema,
+                Err(err) => {
+                    return Err(vec![(0, ValidationError {
+                        message: format!("Failed to load schema: {}", err)
+                    })]);
+                }
+            };
 
             match self.config.fn_worker {
                 Some(worker) => {
@@ -53,10 +73,28 @@ impl Parser {
         }
         let mut line_number = 1;
         for line_result in reader.lines() {
-            let line_text = line_result.context("Failed to read line")?;
-            sender
+            let line_text = line_result.context("Failed to read line");
+            let line_text = match line_text {
+                Ok(line_text) => line_text,
+                Err(err) => {
+                    return Err(vec![(line_number, ValidationError {
+                        message: format!("Failed to read line: {}", err)
+                    })]);
+                }
+            };
+
+            let result = sender
                 .send((line_number, line_text))
-                .context("Failed to send line to worker")?;
+                .context("Failed to send line to worker");
+            match result {
+                Ok(_) => {}
+                Err(err) => {
+                    return Err(vec![(line_number, ValidationError {
+                        message: format!("Error processing line: {}", err)
+                    })]); // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+                }
+            }
+            
             line_number += 1;
         }
         drop(sender);
@@ -118,8 +156,7 @@ impl Parser {
                 // Validate each cell in the line
                 let mut first_error: Option<Error> = None;
                 for cell in match_line_name.cell {
-                    // TODO: add more validation for other format types (e.g. number, regex, ...)
-                    match validate_line(&cell, line_number, &line_text) {
+                    match Self::validate_line(&cell, line_number, &line_text) {
                         Ok(_) => {}
                         Err(err) => {
                             first_error = Some(err);
@@ -164,7 +201,7 @@ impl Parser {
                         <linecondition><match type="string" pattern="H"/></linecondition>
                     </cell>
                 */
-                match validate_line(cell_line_condition, 0, line_text) {
+                match Self::validate_line(cell_line_condition, 0, line_text) {
                     Ok(_) => {}
                     Err(_) => {
                         continue;
@@ -196,29 +233,43 @@ impl Parser {
 
         schema.get_line_by_linetype(match_line_name)
     }
-}
 
-fn validate_line(cell: &schema::Cell, line_number: usize, line_text: &str) -> Result<()> {
-    let cell_value: &str = &line_text[cell.start..cell.end];
-
-    if let Some(format) = &cell.format {
-        if format.ctype == "date" {
-            // validate date format in cell_value
-            let dt = NaiveDate::parse_from_str(cell_value, &format.pattern);
-            match dt {
-                Ok(_) => {
-                    // Date is valid
-                    return Ok(());
+    fn validate_line(cell: &schema::Cell, line_number: usize, line_text: &str) -> Result<()> {
+        let cell_value: &str = &line_text[cell.start..cell.end];
+    
+        if let Some(format) = &cell.format {
+            // TODO: add more validation for other format types (e.g. number, regex, ...)
+            if format.ctype == "date" {
+                // validate date format in cell_value
+                let dt = NaiveDate::parse_from_str(cell_value, &format.pattern);
+                match dt {
+                    Ok(_) => {
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid date format for line number: {}",
+                            line_number
+                        ));
+                    }
                 }
-                Err(_) => {
-                    // Date is invalid
+            } else if format.ctype == "string" {
+                // Validate regex format in cell_value
+                let re = regex::Regex::new(&format.pattern).unwrap();
+                if re.is_match(cell_value) {
+                    return Ok(());
+                } else {
                     return Err(anyhow::anyhow!(
-                        "Invalid date format for line number: {}",
+                        "Invalid regex format for line number: {}",
                         line_number
                     ));
                 }
+            } else if format.ctype == "number" {
+                let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
+                formatter.validate_number(cell_value)
+                    .map_err(|err| anyhow::anyhow!("{}: Invalid number format for line number: {}", line_number, err))?;
             }
         }
+        Ok(())
     }
-    Ok(())
 }
