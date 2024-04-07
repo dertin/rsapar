@@ -61,5 +61,4 @@ mod tests {
         assert!(formatter.validate_number("00000000.00").is_ok());
         
     }
-
 }
