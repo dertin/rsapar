@@ -6,18 +6,18 @@ use xml::reader::{EventReader, XmlEvent};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub(crate) struct Format {
+pub struct Format {
     pub ctype: String,
     pub pattern: String,
 }
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub(crate) struct LineCondition {
+pub struct LineCondition {
     pub matchpattern: String,
 }
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub(crate) struct Cell {
+pub struct Cell {
     pub name: String,
     pub length: usize,
     pub start: usize,
@@ -30,7 +30,7 @@ pub(crate) struct Cell {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Line {
+pub struct Line {
     pub linetype: String,
     pub maxlength: usize,
     pub occurs: String,
@@ -40,20 +40,20 @@ pub(crate) struct Line {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FixedWidthSchema {
+pub struct FixedWidthSchema {
     pub lineseparator: String,
     pub lines: Vec<Line>,
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub(crate) struct CsvSchema {
+pub struct CsvSchema {
     pub lines: Vec<Line>, // TODO: implement CSV schema
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub(crate) struct Schema {
+pub struct Schema {
     pub fixedwidthschema: Option<FixedWidthSchema>,
     pub csvschema: Option<CsvSchema>, // TODO: implement CSV schema
 }
@@ -115,11 +115,13 @@ impl Schema {
                                 "occurs" => temp_line.occurs = attr.value.clone(), // TODO: not used by the parser yet.
                                 "maxlength" => {
                                     temp_line.maxlength = attr.value.parse().unwrap_or(0)
-                                },
-                                "minlength" => { // TODO: not used by the parser yet.
+                                }
+                                "minlength" => {
+                                    // TODO: not used by the parser yet.
                                     temp_line.minlength = attr.value.parse().unwrap_or(0)
-                                },
-                                "padcharacter" => { // TODO: not used by the parser yet.
+                                }
+                                "padcharacter" => {
+                                    // TODO: not used by the parser yet.
                                     temp_line.padcharacter = attr.value.clone()
                                 }
                                 _ => (),
