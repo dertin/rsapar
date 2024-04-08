@@ -9,11 +9,11 @@ categories = ["encoding", "parser-implementations"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dertin/rsapar"
 documentation = "https://docs.rs/rsapar"
-rust-version = "1.76"
+rust-version = "1.65.0"
 
 [dependencies]
 xml-rs="0.8.20"
 crossbeam = "0.8.4"
-anyhow = "1.0"
-chrono = "0.4"
-regex = "1.10"
+anyhow = "1.0.81"
+chrono = "0.4.37"
+regex = "1.10.4"

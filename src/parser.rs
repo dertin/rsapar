@@ -1,19 +1,20 @@
 use anyhow::Context;
 use anyhow::{Error, Result};
+use chrono::naive::NaiveDate;
 use crossbeam::channel::{unbounded, Receiver, Sender};
+use std::fmt::format;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::thread;
 
-use chrono::naive::NaiveDate;
-
 use crate::decimal_format;
 use crate::schema::{self, Line};
 
-type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize>>;
+pub type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize, ValidationError>>;
 
 #[derive(Debug)]
 pub struct ValidationError {
+    pub line: usize,
     pub message: String,
 }
 pub struct ParserConfig {
@@ -34,31 +35,37 @@ impl Parser {
         Self { config }
     }
 
-    pub fn start(&self) -> Result<(), Vec<(usize, ValidationError)>> {
+    pub fn start(&self) -> Result<(), Vec<ValidationError>> {
         let (sender, receiver): (Sender<LineNumberAndText>, Receiver<LineNumberAndText>) =
             unbounded();
         let file = File::open(self.config.file_path.clone()).context("Failed to open file");
         let file = match file {
             Ok(file) => file,
             Err(err) => {
-                return Err(vec![(0, ValidationError {
-                    message: format!("Failed to open file: {}", err)
-                })]);
+                return Err(vec![
+                    ValidationError {
+                        line: 0,
+                        message: format!("Failed to open file: {}", err),
+                    },
+                ]);
             }
-            
         };
         let reader = BufReader::new(file);
 
         let mut handles = vec![];
         for _ in 0..self.config.n_workers {
             let receiver = receiver.clone();
-            let schema = schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
+            let schema =
+                schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
             let schema = match schema {
                 Ok(schema) => schema,
                 Err(err) => {
-                    return Err(vec![(0, ValidationError {
-                        message: format!("Failed to load schema: {}", err)
-                    })]);
+                    return Err(vec![
+                        ValidationError {
+                            line: 0,
+                            message: format!("Failed to load schema: {}", err),
+                        },
+                    ]);
                 }
             };
 
@@ -73,13 +80,17 @@ impl Parser {
         }
         let mut line_number = 1;
         for line_result in reader.lines() {
+            // TODO: Add support for other line endings as property of the Schema (<fixedwidthschema lineseparator="\n">)
             let line_text = line_result.context("Failed to read line");
             let line_text = match line_text {
                 Ok(line_text) => line_text,
                 Err(err) => {
-                    return Err(vec![(line_number, ValidationError {
-                        message: format!("Failed to read line: {}", err)
-                    })]);
+                    return Err(vec![
+                        ValidationError {
+                            line: line_number,
+                            message: format!("Failed to read line: {}", err),
+                        },
+                    ]);
                 }
             };
 
@@ -89,37 +100,50 @@ impl Parser {
             match result {
                 Ok(_) => {}
                 Err(err) => {
-                    return Err(vec![(line_number, ValidationError {
-                        message: format!("Error processing line: {}", err)
-                    })]); // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+                    return Err(vec![ValidationError {
+                        line: line_number,
+                        message: format!("Error processing line: {}", err),
+                    }]); // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                 }
             }
-            
+
             line_number += 1;
         }
         drop(sender);
 
+        let mut return_errors: Vec<ValidationError> = Vec::new();
         for handle in handles {
             let results = handle.join().unwrap();
             for result in results {
                 match result {
                     Ok(line_number) => {
                         // TODO: Add line to the report as processed successfully.
-                        println!("Line number {} processed successfully", line_number)
+                        // println!("Line number {} processed successfully", line_number)
                     }
-                    Err(err) => {
+                    Err(v) => {
                         // TODO: Add line to the report as processed with errors.
-                        println!("Error processing line: {}", err)
+                        //println!("Error processing line: {}", err)
+                        return_errors.push(ValidationError {
+                            line: v.line,
+                            message: v.message,
+                        });
                     }
                 }
             }
+        }
+
+        if !return_errors.is_empty() {
+            return Err(return_errors);
         }
         // TODO: Final report in the response format according to configuration (ParserConfig)
         Ok(())
     }
 
-    fn worker(receiver: Receiver<LineNumberAndText>, schema: schema::Schema) -> Vec<Result<usize>> {
-        let mut results: Vec<Result<usize, anyhow::Error>> = Vec::new();
+    fn worker(
+        receiver: Receiver<LineNumberAndText>,
+        schema: schema::Schema,
+    ) -> Vec<Result<usize, ValidationError>> {
+        let mut results: Vec<Result<usize, ValidationError>> = Vec::new();
 
         let schema_lines_with_condition: Vec<(String, Vec<schema::Cell>)> =
             schema.get_line_conditions().to_owned();
@@ -136,37 +160,44 @@ impl Parser {
                 let match_line_name: Line = match match_line_name {
                     Some(line) => line,
                     None => {
-                        results.push(Err(anyhow::anyhow!(
-                            "No line type found for line number: {}",
-                            line_number
-                        )));
+                        results.push(Err(ValidationError {
+                            line: line_number,
+                            message: "[err:001]|line|no match found for schema line type".to_string(),
+                        }));
                         continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                     }
                 };
 
                 // Validate maxlength of the line
                 if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
-                    results.push(Err(anyhow::anyhow!(
-                        "Line number {} has length {} but expected {}",
-                        line_number, line_text.len(), match_line_name.maxlength
-                    )));
+                    results.push(Err(ValidationError {
+                        line: line_number,
+                        message: format!(
+                            "[err:002]|line|maxlength|the line has length {} but was expected {}",
+                            line_text.len(),
+                            match_line_name.maxlength
+                        ),
+                    }));
                     continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                 }
 
                 // Validate each cell in the line
-                let mut first_error: Option<Error> = None;
+                let mut first_error: Option<String> = None;
                 for cell in match_line_name.cell {
-                    match Self::validate_line(&cell, line_number, &line_text) {
+                    match Self::validate_line(&cell, &line_text) {
                         Ok(_) => {}
                         Err(err) => {
-                            first_error = Some(err);
+                            first_error = err.to_string().into();
                             break; // TODO: Add optional if the first error should stop processing other cells. (ParserConfig)
                         }
                     }
                 }
 
                 if first_error.is_some() {
-                    results.push(Err(first_error.unwrap_or(Error::msg("Unknown error"))));
+                    results.push(Err(ValidationError {
+                        line: line_number,
+                        message: first_error.unwrap_or("Unknown error".to_string()),
+                    }));
                     continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                 }
                 results.push(Ok(line_number));
@@ -201,7 +232,7 @@ impl Parser {
                         <linecondition><match type="string" pattern="H"/></linecondition>
                     </cell>
                 */
-                match Self::validate_line(cell_line_condition, 0, line_text) {
+                match Self::validate_line(cell_line_condition, line_text) {
                     Ok(_) => {}
                     Err(_) => {
                         continue;
@@ -234,9 +265,18 @@ impl Parser {
         schema.get_line_by_linetype(match_line_name)
     }
 
-    fn validate_line(cell: &schema::Cell, line_number: usize, line_text: &str) -> Result<()> {
-        let cell_value: &str = &line_text[cell.start..cell.end];
-    
+    fn validate_line(
+        cell: &schema::Cell,
+        line_text: &str,
+    ) -> Result<(), String> {
+        let cell_name = &cell.name;
+        let cell_value: Option<&str> = line_text.get(cell.start..cell.end);
+        let cell_value = match cell_value {
+            Some(cell_value) => cell_value,
+            None => {
+                return Err(format!("[err:003]|{}|invalid range [{}]-[{}]", cell_name, cell.start, cell.end));
+            }
+        };
         if let Some(format) = &cell.format {
             // TODO: add more validation for other format types (e.g. number, regex, ...)
             if format.ctype == "date" {
@@ -247,10 +287,7 @@ impl Parser {
                         return Ok(());
                     }
                     Err(_) => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid date format for line number: {}",
-                            line_number
-                        ));
+                        return Err(format!("[err:004]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
                     }
                 }
             } else if format.ctype == "string" {
@@ -259,15 +296,18 @@ impl Parser {
                 if re.is_match(cell_value) {
                     return Ok(());
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Invalid regex format for line number: {}",
-                        line_number
-                    ));
+                    return Err(format!("[err:005]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
                 }
             } else if format.ctype == "number" {
                 let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
-                formatter.validate_number(cell_value)
-                    .map_err(|err| anyhow::anyhow!("{}: Invalid number format for line number: {}", line_number, err))?;
+                match formatter.validate_number(cell_value) {
+                    Ok(_) => {
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        return Err(format!("[err:006]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                    }
+                }
             }
         }
         Ok(())
