@@ -1,5 +1,5 @@
 # This workflows will upload a Crates using cargo when a release is created
-name: Upload Cargo Crates
+name: Publish crates
 
 on:
   push:

@@ -1,8 +1,7 @@
 use anyhow::Context;
-use anyhow::{Error, Result};
+use anyhow::Result;
 use chrono::naive::NaiveDate;
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use std::fmt::format;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::thread;
@@ -116,13 +115,10 @@ impl Parser {
             let results = handle.join().unwrap();
             for result in results {
                 match result {
-                    Ok(line_number) => {
+                    Ok(_line_number) => {
                         // TODO: Add line to the report as processed successfully.
-                        // println!("Line number {} processed successfully", line_number)
                     }
                     Err(v) => {
-                        // TODO: Add line to the report as processed with errors.
-                        //println!("Error processing line: {}", err)
                         return_errors.push(ValidationError {
                             line: v.line,
                             message: v.message,
