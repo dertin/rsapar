@@ -17,16 +17,23 @@ Here's a step-by-step guide on how to get started:
 3. **Configure the parser:** Set up the parser configuration with the path to your data file, the number of workers, and the path to your schema file.
 
     ```rust
-    use rsapar::ParserConfig;
-    
-    let config = ParserConfig {
+    let config = rsapar::ParserConfig {
         file_path: "./example/data.txt".to_string(),
         fn_worker: None,
         n_workers: 4,
         file_schema: "./example/schema.xml".to_string(),
     };
 
-    let result = rsapar::parser(config);
+    let result: Result<(), Vec<rsapar::ValidationError>> = rsapar::parser(config);
+
+    match result {
+        Ok(_) => println!("Parsing successful"),
+        Err(errors) => {
+            for error in errors {
+                println!("Error at line {}: {}", error.line, error.message);
+            }
+        }
+    }
     ```
 
 This setup provides a brief overview of how to start using `RSaPar`. The schema structure is inspired by JSaPar, and more information on this alignment will be available in the future.
