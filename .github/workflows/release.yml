@@ -1,0 +1,33 @@
+# This workflows will upload a Crates using cargo when a release is created
+name: Upload Cargo Crates
+
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v0.1.1,  v0.1.2 ...
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Install rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Run cargo test
+      run: cargo test
+      env:
+         RUST_BACKTRACE: 1
+      
+    - name: Publish crates
+      env:
+        CARGO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      run: cargo publish --token "${CARGO_TOKEN}"
