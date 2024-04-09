@@ -33,7 +33,7 @@ This setup provides a brief overview of how to start using `RSaPar`. The schema 
 
 ## 🚀 Roadmap <a name="roadmap"></a>
 
-- [ ] Full support for validation of fixed-width files (v0.1.3)
+- [ ] Full support for validation of fixed-width files (v0.1.2)
 
 For more details on upcoming features and releases, check out the [milestones](https://github.com/dertin/rsapar/milestones)
 
