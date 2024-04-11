@@ -9,11 +9,19 @@ categories = ["encoding", "parser-implementations"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dertin/rsapar"
 documentation = "https://docs.rs/rsapar"
-rust-version = "1.65.0"
+rust-version = "1.70.0"
 
 [dependencies]
 xml-rs="0.8.20"
 crossbeam = "0.8.4"
-anyhow = "1.0.81"
+anyhow = "1.0.82"
 chrono = "0.4.37"
 regex = "1.10.4"
+
+[[bench]]
+name = "bench"
+path = "benches/bench.rs"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["async_tokio"] }
