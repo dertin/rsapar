@@ -1,13 +1,29 @@
 use regex::Regex;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
+#[derive(Clone)]
 pub struct DecimalFormat {
-    positive_pattern: String,
-    negative_pattern: String,
+    positive_regex: Regex,
+    negative_regex: Regex,
 }
+
+static DECIMAL_FORMAT_CACHE: OnceLock<Mutex<HashMap<String, DecimalFormat>>> = OnceLock::new();
+
 /// Convert DecimalFormat (Java) pattern to regex.
 /// @see: [DecimalFormat](https://docs.oracle.com/javase/8/docs/api/java/text/DecimalFormat.html)
+
 impl DecimalFormat {
     pub fn new(pattern: &str) -> Result<Self, String> {
+        let cache = DECIMAL_FORMAT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut cache_guard = cache.lock().unwrap();
+
+        if let Some(decimal_format) = cache_guard.get(pattern) {
+            return Ok(decimal_format.to_owned());
+        }
+
         let special_chars = ['\'', '(', ')', '0', '.', ',', '#', ';', '¤', '%'];
         let mut in_quotes = false;
         let mut patterns = vec![String::new()];
@@ -43,28 +59,32 @@ impl DecimalFormat {
             .map(|p| format!("-{}", p))
             .unwrap_or_else(|| format!("-{}", positive_pattern));
 
-        Ok(DecimalFormat {
-            positive_pattern,
-            negative_pattern,
-        })
+        let positive_pattern = Self::pattern_to_regex(&positive_pattern);
+        let negative_pattern = Self::pattern_to_regex(&negative_pattern);
+
+        let positive_regex = Regex::new(&positive_pattern).map_err(|_| "Invalid regex pattern")?;
+        let negative_regex = Regex::new(&negative_pattern).map_err(|_| "Invalid regex pattern")?;
+
+        let decimal_format = DecimalFormat {
+            positive_regex,
+            negative_regex,
+        };
+
+        cache_guard.insert(pattern.to_string(), decimal_format.clone());
+
+        Ok(decimal_format)
     }
 
     pub fn validate_number(&self, input: &str) -> Result<(), &'static str> {
-        let positive_regex = Self::pattern_to_regex(&self.positive_pattern)?;
-        let negative_regex = Self::pattern_to_regex(&self.negative_pattern)?;
-
-        let positive_re = Regex::new(&positive_regex).map_err(|_| "Invalid regex pattern")?;
-        let negative_re = Regex::new(&negative_regex).map_err(|_| "Invalid regex pattern")?;
-
-        if positive_re.is_match(input) || negative_re.is_match(input) {
+        if self.positive_regex.is_match(input) || self.negative_regex.is_match(input) {
             Ok(())
         } else {
             Err("Input does not match pattern")
         }
     }
 
-    fn pattern_to_regex(pattern: &str) -> Result<String, &'static str> {
-        let mut regex_pattern = String::new();
+    fn pattern_to_regex(pattern: &str) -> String {
+        let mut regex_pattern = "^".to_string();
         let mut in_quotes = false;
 
         for c in pattern.chars() {
@@ -81,19 +101,17 @@ impl DecimalFormat {
                 regex_pattern.push(c);
             } else {
                 match c {
-                    '0' => regex_pattern.push_str("\\d"), // Match a digit.
+                    '0' => regex_pattern.push_str("\\d"),  // Match a digit.
                     '#' => regex_pattern.push_str("\\d?"), // Match an optional digit.
-                    ',' => regex_pattern.push_str("\\,?"),
+                    ',' => regex_pattern.push_str("\\,"),
                     '.' => regex_pattern.push_str("\\."),
                     ';' => regex_pattern.push_str("\\;"),
-                    '¤' => regex_pattern.push_str("\\$"),
+                    '¤' => regex_pattern.push_str("\\$"), // TODO: Add the international currency symbol.
                     _ => regex_pattern.push(c),
                 }
             }
         }
-
-        regex_pattern.insert(0, '^');
         regex_pattern.push('$');
-        Ok(regex_pattern)
+        regex_pattern
     }
 }

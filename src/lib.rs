@@ -51,7 +51,7 @@ mod tests {
         let formatter = decimal_format::DecimalFormat::new(pattern).unwrap();
         assert!(formatter.validate_number("2,234.56").is_ok());
         assert!(formatter.validate_number("-1,234.560").is_ok());
-        assert!(formatter.validate_number("1234.56").is_ok());
+        assert!(formatter.validate_number("1234.56").is_err());
         assert!(formatter.validate_number("1234").is_err());
 
         let pattern = "0.#0,##0";
