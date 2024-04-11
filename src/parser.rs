@@ -44,7 +44,7 @@ impl Parser {
                 return Err(vec![
                     ValidationError {
                         line: 0,
-                        message: format!("Failed to open file: {}", err),
+                        message: format!("{}", err),
                     },
                 ]);
             }
@@ -62,7 +62,7 @@ impl Parser {
                     return Err(vec![
                         ValidationError {
                             line: 0,
-                            message: format!("Failed to load schema: {}", err),
+                            message: format!("{}", err),
                         },
                     ]);
                 }
@@ -87,7 +87,7 @@ impl Parser {
                     return Err(vec![
                         ValidationError {
                             line: line_number,
-                            message: format!("Failed to read line: {}", err),
+                            message: format!("{}", err),
                         },
                     ]);
                 }
@@ -101,7 +101,7 @@ impl Parser {
                 Err(err) => {
                     return Err(vec![ValidationError {
                         line: line_number,
-                        message: format!("Error processing line: {}", err),
+                        message: format!("{}", err),
                     }]); // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                 }
             }

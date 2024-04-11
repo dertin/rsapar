@@ -1,5 +1,3 @@
-use core::panic;
-
 use rsapar::DecimalFormat;
 
 use criterion::{criterion_group, criterion_main, Criterion};

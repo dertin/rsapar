@@ -53,6 +53,22 @@ To contribute, fork the repo, create your feature branch, and submit a pull requ
 
 Thank you for your support!
 
+## 🧪 Testing <a name="testing"></a>
+
+To run the tests and benchmarks, use the following commands:
+
+```bash
+cargo test
+cargo bench
+```
+
+To use the latest development version of `RSaPar` in your project, add the following to your `Cargo.toml` file:
+
+```toml
+[dependencies]
+rsapar = {git = "https://github.com/dertin/rsapar.git", branch = "main"}
+```
+
 ## 🪪 License <a name="license"></a>
 Distributed under the MIT or Apache-2.0 License.
 
