@@ -1,5 +1,8 @@
 use anyhow::Context;
+use anyhow::Error;
 use anyhow::Result;
+use anyhow::anyhow;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use xml::reader::{EventReader, XmlEvent};
@@ -59,7 +62,7 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn load(path: &str) -> Result<Schema> {
+    pub fn load(path: &str) -> Result<Schema, Error> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let parser = EventReader::new(file);
@@ -85,6 +88,8 @@ impl Schema {
         let mut temp_format: Option<Format> = None;
         let mut end_cell = 0;
 
+        let mut seen_linetypes = HashSet::new();
+
         for e in parser {
             match e {
                 Ok(XmlEvent::StartElement {
@@ -94,7 +99,7 @@ impl Schema {
                         for attr in attributes {
                             if attr.name.local_name == "lineseparator" {
                                 if let Some(fixed_width_schema) = &mut schema.fixedwidthschema {
-                                    fixed_width_schema.lineseparator = attr.value.clone();
+                                    fixed_width_schema.lineseparator = attr.value;
                                 }
                             }
                         }
@@ -111,8 +116,15 @@ impl Schema {
                         };
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "linetype" => temp_line.linetype = attr.value.clone(), // TODO: check unique name
-                                "occurs" => temp_line.occurs = attr.value.clone(), // TODO: not used by the parser yet.
+                                "linetype" => 
+                                {
+                                    if seen_linetypes.contains(&attr.value) {
+                                        return Err(anyhow!("Duplicate linetype: {}", attr.value));
+                                    }
+                                    seen_linetypes.insert(attr.value.clone());
+                                    temp_line.linetype = attr.value;
+                                },
+                                "occurs" => temp_line.occurs = attr.value, // TODO: not used by the parser yet.
                                 "maxlength" => {
                                     temp_line.maxlength = attr.value.parse().unwrap_or(0)
                                 }
@@ -122,7 +134,7 @@ impl Schema {
                                 }
                                 "padcharacter" => {
                                     // TODO: not used by the parser yet.
-                                    temp_line.padcharacter = attr.value.clone()
+                                    temp_line.padcharacter = attr.value
                                 }
                                 _ => (),
                             }
@@ -137,10 +149,10 @@ impl Schema {
 
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "name" => cell_name = attr.value.clone(), // TODO: check unique name
+                                "name" => cell_name = attr.value, // TODO: check unique name
                                 "length" => cell_length = attr.value.parse().unwrap_or(0),
-                                "alignment" => cell_alignment = attr.value.clone(), // TODO: not used by the parser yet.
-                                "padcharacter" => cell_padcharacter = attr.value.clone(), // TODO: not used by the parser yet.
+                                "alignment" => cell_alignment = attr.value, // TODO: not used by the parser yet.
+                                "padcharacter" => cell_padcharacter = attr.value, // TODO: not used by the parser yet.
                                 _ => (),
                             }
                         }
@@ -164,8 +176,8 @@ impl Schema {
                         let mut pattern = String::new();
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "type" => ctype = attr.value.clone().to_lowercase(),
-                                "pattern" => pattern = attr.value.clone(),
+                                "type" => ctype = attr.value.to_lowercase(),
+                                "pattern" => pattern = attr.value,
                                 _ => (),
                             }
                         }
@@ -177,10 +189,10 @@ impl Schema {
 
                         for attr in attributes {
                             if attr.name.local_name == "type" {
-                                matchtype = attr.value.clone().to_lowercase();
+                                matchtype = attr.value.to_lowercase();
                             }
                             if attr.name.local_name == "pattern" {
-                                matchpattern = attr.value.clone();
+                                matchpattern = attr.value;
                             }
                         }
                         if let Some(cell) = temp_line.cell.last_mut() {
@@ -202,7 +214,7 @@ impl Schema {
                     "line" => {
                         if in_line {
                             if let Some(fixed_width_schema) = &mut schema.fixedwidthschema {
-                                fixed_width_schema.lines.push(temp_line.clone());
+                                fixed_width_schema.lines.push(temp_line.to_owned());
                             }
 
                             in_line = false;
@@ -234,7 +246,7 @@ impl Schema {
                 if cells_with_condition.is_empty() {
                     None
                 } else {
-                    Some((line.linetype.clone(), cells_with_condition))
+                    Some((line.linetype.to_owned(), cells_with_condition))
                 }
             })
             .collect()
@@ -290,8 +302,8 @@ impl Schema {
         // For now it is only implemented for fixed width scheme.
         // TODO: implement for CSV schema (should be equal to fixed width)
         let fixedwidthschema: &Option<FixedWidthSchema> = &self.fixedwidthschema; // hardcoded to fixed width
-        let binding: FixedWidthSchema = match fixedwidthschema.clone() {
-            Some(fixedwidthschema) => fixedwidthschema,
+        let binding: FixedWidthSchema = match fixedwidthschema {
+            Some(fixedwidthschema) => fixedwidthschema.to_owned(),
             None => todo!("invalid schema"),
         };
         binding

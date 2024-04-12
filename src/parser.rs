@@ -133,9 +133,9 @@ impl Parser {
             }
         };
         let reader = BufReader::new(file);
-
+        
         let schema =
-            schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
+            schema::Schema::load(&self.config.file_schema);
         let schema = match schema {
             Ok(schema) => schema,
             Err(err) => {
