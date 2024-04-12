@@ -9,7 +9,9 @@ use std::thread;
 use crate::decimal_format;
 use crate::schema::{self, Line};
 
-pub type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize, ValidationError>>;
+pub type WorkerFunction =
+    fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize, ValidationError>>;
+type LineNumberAndText = (usize, String);
 
 #[derive(Debug)]
 pub struct ValidationError {
@@ -27,7 +29,90 @@ pub struct Parser {
     config: ParserConfig,
 }
 
-type LineNumberAndText = (usize, String);
+struct LinesWithSeparator<R: BufRead> {
+    reader: R,
+    separator: Vec<u8>,
+    buf: Vec<u8>,
+    finished: bool,
+}
+
+impl<R: BufRead> LinesWithSeparator<R> {
+    fn new(reader: R, separator: String) -> Self {
+        Self {
+            reader,
+            separator: separator.into_bytes(),
+            buf: Vec::new(),
+            finished: false,
+        }
+    }
+}
+
+impl<R: BufRead> Iterator for LinesWithSeparator<R> {
+    type Item = std::io::Result<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished && self.buf.is_empty() {
+            return None;
+        }
+
+        let separator_str = match String::from_utf8(self.separator.clone()) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
+        };
+
+        let mut separator_bytes = Vec::new();
+        let mut chars = separator_str.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                match chars.next() {
+                    Some('n') => separator_bytes.push(b'\n'),
+                    Some('r') => separator_bytes.push(b'\r'),
+                    Some('t') => separator_bytes.push(b'\t'),
+                    Some('0') => separator_bytes.push(0),
+                    Some(other) => separator_bytes.push(other as u8),
+                    None => break,
+                }
+            } else {
+                separator_bytes.push(ch as u8);
+            }
+        }
+
+        let mut match_index = 0;
+
+        loop {
+            let mut byte = [0; 1];
+            match self.reader.read_exact(&mut byte) {
+                Ok(()) => {
+                    self.buf.push(byte[0]);
+                    if byte[0] == separator_bytes[match_index] {
+                        match_index += 1;
+                        if match_index == separator_bytes.len() {
+                            self.buf.truncate(self.buf.len() - separator_bytes.len());
+                            break;
+                        }
+                    } else {
+                        match_index = 0;
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        self.finished = true;
+                        break;
+                    } else {
+                        return Some(Err(e));
+                    }
+                }
+            }
+        }
+
+        let line = match String::from_utf8(self.buf.clone()) {
+            Ok(line) => line,
+            Err(e) => return Some(Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
+        };
+        self.buf.clear();
+        Some(Ok(line))
+    }
+}
 
 impl Parser {
     pub fn new(config: ParserConfig) -> Self {
@@ -41,32 +126,32 @@ impl Parser {
         let file = match file {
             Ok(file) => file,
             Err(err) => {
-                return Err(vec![
-                    ValidationError {
-                        line: 0,
-                        message: format!("{}", err),
-                    },
-                ]);
+                return Err(vec![ValidationError {
+                    line: 0,
+                    message: format!("{}", err),
+                }]);
             }
         };
         let reader = BufReader::new(file);
 
+        let schema =
+            schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
+        let schema = match schema {
+            Ok(schema) => schema,
+            Err(err) => {
+                return Err(vec![ValidationError {
+                    line: 0,
+                    message: format!("{}", err),
+                }]);
+            }
+        };
+
+        let schema_line_separator = schema.get_line_separator();
+
         let mut handles = vec![];
         for _ in 0..self.config.n_workers {
             let receiver = receiver.clone();
-            let schema =
-                schema::Schema::load(&self.config.file_schema).context("Failed to load schema");
-            let schema = match schema {
-                Ok(schema) => schema,
-                Err(err) => {
-                    return Err(vec![
-                        ValidationError {
-                            line: 0,
-                            message: format!("{}", err),
-                        },
-                    ]);
-                }
-            };
+            let schema = schema.clone();
 
             match self.config.fn_worker {
                 Some(worker) => {
@@ -77,19 +162,20 @@ impl Parser {
                 }
             }
         }
+
+        let lines: LinesWithSeparator<BufReader<File>> =
+            LinesWithSeparator::new(reader, schema_line_separator);
+
         let mut line_number = 1;
-        for line_result in reader.lines() {
-            // TODO: Add support for other line endings as property of the Schema (<fixedwidthschema lineseparator="\n">)
+        for line_result in lines {
             let line_text = line_result.context("Failed to read line");
             let line_text = match line_text {
                 Ok(line_text) => line_text,
                 Err(err) => {
-                    return Err(vec![
-                        ValidationError {
-                            line: line_number,
-                            message: format!("{}", err),
-                        },
-                    ]);
+                    return Err(vec![ValidationError {
+                        line: line_number,
+                        message: format!("{}", err),
+                    }]);
                 }
             };
 
@@ -158,7 +244,8 @@ impl Parser {
                     None => {
                         results.push(Err(ValidationError {
                             line: line_number,
-                            message: "[err:001]|line|no match found for schema line type".to_string(),
+                            message: "[err:001]|line|no match found for schema line type"
+                                .to_string(),
                         }));
                         continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
                     }
@@ -261,16 +348,16 @@ impl Parser {
         schema.get_line_by_linetype(match_line_name)
     }
 
-    fn validate_line(
-        cell: &schema::Cell,
-        line_text: &str,
-    ) -> Result<(), String> {
+    fn validate_line(cell: &schema::Cell, line_text: &str) -> Result<(), String> {
         let cell_name = &cell.name;
         let cell_value: Option<&str> = line_text.get(cell.start..cell.end);
         let cell_value = match cell_value {
             Some(cell_value) => cell_value,
             None => {
-                return Err(format!("[err:003]|{}|invalid range [{}]-[{}]", cell_name, cell.start, cell.end));
+                return Err(format!(
+                    "[err:003]|{}|invalid range [{}]-[{}]",
+                    cell_name, cell.start, cell.end
+                ));
             }
         };
         if let Some(format) = &cell.format {
@@ -283,7 +370,10 @@ impl Parser {
                         return Ok(());
                     }
                     Err(_) => {
-                        return Err(format!("[err:004]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                        return Err(format!(
+                            "[err:004]|{}|{}|pattern:{}",
+                            cell_name, format.ctype, format.pattern
+                        ));
                     }
                 }
             } else if format.ctype == "string" {
@@ -292,7 +382,10 @@ impl Parser {
                 if re.is_match(cell_value) {
                     return Ok(());
                 } else {
-                    return Err(format!("[err:005]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                    return Err(format!(
+                        "[err:005]|{}|{}|pattern:{}",
+                        cell_name, format.ctype, format.pattern
+                    ));
                 }
             } else if format.ctype == "number" {
                 let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
@@ -301,7 +394,10 @@ impl Parser {
                         return Ok(());
                     }
                     Err(_) => {
-                        return Err(format!("[err:006]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                        return Err(format!(
+                            "[err:006]|{}|{}|pattern:{}",
+                            cell_name, format.ctype, format.pattern
+                        ));
                     }
                 }
             }

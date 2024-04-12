@@ -69,6 +69,8 @@ To use the latest development version of `RSaPar` in your project, add the follo
 rsapar = {git = "https://github.com/dertin/rsapar.git", branch = "main"}
 ```
 
+Then, regularly run `cargo update -p rsapar` to fetch the latest `main` branch commit.
+
 ## 🪪 License <a name="license"></a>
 Distributed under the MIT or Apache-2.0 License.
 

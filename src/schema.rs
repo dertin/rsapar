@@ -281,6 +281,11 @@ impl Schema {
         line
     }
 
+    pub fn get_line_separator(&self) -> String {
+        let binding = self.get_binding();
+        binding.lineseparator
+    }
+
     fn get_binding(&self) -> FixedWidthSchema {
         // For now it is only implemented for fixed width scheme.
         // TODO: implement for CSV schema (should be equal to fixed width)
