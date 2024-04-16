@@ -347,9 +347,12 @@ impl Parser {
 
         schema.get_line_by_linetype(match_line_name)
     }
-
+    
     fn validate_line(cell: &schema::Cell, line_text: &str) -> Result<(), String> {
         let cell_name = &cell.name;
+        let mut cell_alignment = cell.alignment.to_owned();
+        let cell_padcharacter = &cell.padcharacter;
+
         let cell_value: Option<&str> = line_text.get(cell.start..cell.end);
         let cell_value = match cell_value {
             Some(cell_value) => cell_value,
@@ -361,6 +364,32 @@ impl Parser {
             }
         };
         if let Some(format) = &cell.format {
+
+            if cell_alignment.is_empty() && format.ctype == "number" {
+                cell_alignment = "right".to_string();
+            } else if cell_alignment.is_empty() {
+                cell_alignment = "left".to_string();
+            }
+            
+            let cell_value = match cell_alignment.as_str() {
+                "right" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_start_matches(cell_padcharacter_slice)
+                },
+                "left" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_end_matches(cell_padcharacter_slice)
+                },
+                "center" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_matches(cell_padcharacter_slice)
+                },
+                _ => cell_value,
+            };
+
             // TODO: add more validation for other format types (e.g. number, regex, ...)
             if format.ctype == "date" {
                 // validate date format in cell_value

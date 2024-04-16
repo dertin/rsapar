@@ -21,11 +21,11 @@
         <format type="string" pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"/>
       </cell>
     </line>
-    <line linetype="Footer" occurs="*" maxlength="21">
+    <line linetype="Footer" occurs="*" maxlength="21" padcharacter="00">
       <cell name="RecordType" length="1">
         <linecondition><match type="string" pattern="F"/></linecondition>
       </cell>
-      <cell name="RecordCount" length="7">
+      <cell name="FileName" length="7" alignment="center" padcharacter="11">
         <format type="string" pattern=".*"/>
       </cell>
       <cell name="TotalAmount" length="13">

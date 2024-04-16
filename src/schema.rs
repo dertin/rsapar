@@ -81,7 +81,7 @@ impl Schema {
             occurs: String::new(),
             cell: vec![],
             minlength: 0,
-            padcharacter: String::new(),
+            padcharacter: String::from(" "),
         };
         let mut in_line = false;
         let mut in_cell = false;
@@ -112,7 +112,7 @@ impl Schema {
                             occurs: String::new(),
                             cell: vec![],
                             minlength: 0,
-                            padcharacter: String::new(),
+                            padcharacter: String::from(" "),
                         };
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
@@ -133,7 +133,6 @@ impl Schema {
                                     temp_line.minlength = attr.value.parse().unwrap_or(0)
                                 }
                                 "padcharacter" => {
-                                    // TODO: not used by the parser yet.
                                     temp_line.padcharacter = attr.value
                                 }
                                 _ => (),
@@ -145,14 +144,14 @@ impl Schema {
                         let mut cell_name = String::new();
                         let mut cell_length = 0;
                         let mut cell_alignment = String::new();
-                        let mut cell_padcharacter = String::new();
+                        let mut cell_padcharacter = temp_line.padcharacter.to_owned();
 
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "name" => cell_name = attr.value, // TODO: check unique name
+                                "name" => cell_name = attr.value,
                                 "length" => cell_length = attr.value.parse().unwrap_or(0),
-                                "alignment" => cell_alignment = attr.value, // TODO: not used by the parser yet.
-                                "padcharacter" => cell_padcharacter = attr.value, // TODO: not used by the parser yet.
+                                "alignment" => cell_alignment = attr.value,
+                                "padcharacter" => cell_padcharacter = attr.value,
                                 _ => (),
                             }
                         }
