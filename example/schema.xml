@@ -21,7 +21,7 @@
         <format type="string" pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"/>
       </cell>
     </line>
-    <line linetype="Footer" occurs="*" maxlength="21" padcharacter="00">
+    <line linetype="Footer" occurs="*" maxlength="21">
       <cell name="RecordType" length="1">
         <linecondition><match type="string" pattern="F"/></linecondition>
       </cell>

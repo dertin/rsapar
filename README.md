@@ -16,22 +16,38 @@ Here's a step-by-step guide on how to get started:
 
 3. **Configure the parser:** Set up the parser configuration with the path to your data file, the number of workers, and the path to your schema file.
 
+    Example parser all lines:
     ```rust
     let config = rsapar::ParserConfig {
         file_path: "./example/data.txt".to_string(),
-        fn_worker: None,
-        n_workers: 4,
         file_schema: "./example/schema.xml".to_string(),
     };
-
-    let result: Result<(), Vec<rsapar::ValidationError>> = rsapar::parser(config);
+    let n_workers = 4; // Number of workers to be used for parallel processing of all lines.
+    
+    let result: Result<(), Vec<rsapar::ValidationError>> = rsapar::parser_all(config, n_workers);
 
     match result {
-        Ok(_) => println!("Parsing successful"),
+        Ok(_) => println!("All lines are processed"),
         Err(errors) => {
             for error in errors {
                 println!("Error at line {}: {}", error.line, error.message);
             }
+        }
+    }
+    ```
+    Example parser line by line:
+    ```rust
+    let config = rsapar::ParserConfig {
+        file_path: "./example/data.txt".to_string(),
+        file_schema: "./example/schema.xml".to_string(),
+    };
+    
+    let lines = rsapar::parser(config);
+
+    for line_result in lines {
+        match line_result {
+            Ok(processed_line) => println!("{:?}", processed_line),
+            Err(e) => println!("Error processing line: {:?}", e),
         }
     }
     ```

@@ -10,30 +10,44 @@ use crate::decimal_format;
 use crate::schema::{self, Line};
 
 pub type WorkerFunction =
-    fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<usize, ValidationError>>;
+    fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<ProcessedLine, ProcessedLine>>;
 type LineNumberAndText = (usize, String);
 
 #[derive(Debug)]
-pub struct ValidationError {
+pub struct ProcessedLine {
     pub line: usize,
     pub message: String,
 }
+
+#[derive(Clone)]
 pub struct ParserConfig {
     pub file_path: String,
     pub file_schema: String,
-    pub fn_worker: Option<WorkerFunction>,
-    pub n_workers: usize,
+    //#[deprecated]
+    //pub fn_worker: Option<WorkerFunction>,
+    //#[deprecated]
+    //pub n_workers: usize,
     // TODO: add more configuration options. result_file_path, error_file_path, result_type, ...
 }
+
 pub struct Parser {
     config: ParserConfig,
+    schema: schema::Schema,
+    lines_with_separator: LinesWithSeparator<BufReader<File>>,
 }
 
+#[derive(Clone)]
 struct LinesWithSeparator<R: BufRead> {
     reader: R,
     separator: Vec<u8>,
     buf: Vec<u8>,
     finished: bool,
+}
+
+pub struct ProcessedLinesIterator {
+    lines_with_separator: LinesWithSeparator<BufReader<File>>,
+    schema: schema::Schema,
+    current_line: usize,
 }
 
 impl<R: BufRead> LinesWithSeparator<R> {
@@ -55,7 +69,7 @@ impl<R: BufRead> Iterator for LinesWithSeparator<R> {
             return None;
         }
 
-        let separator_str = match String::from_utf8(self.separator.clone()) {
+        let separator_str = match String::from_utf8(self.separator.to_owned()) {
             Ok(v) => v,
             Err(e) => return Some(Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
         };
@@ -68,6 +82,7 @@ impl<R: BufRead> Iterator for LinesWithSeparator<R> {
                     Some('n') => separator_bytes.push(b'\n'),
                     Some('r') => separator_bytes.push(b'\r'),
                     Some('t') => separator_bytes.push(b'\t'),
+                    Some('f') => separator_bytes.push(b'\x0C'),
                     Some('0') => separator_bytes.push(0),
                     Some(other) => separator_bytes.push(other as u8),
                     None => break,
@@ -114,57 +129,94 @@ impl<R: BufRead> Iterator for LinesWithSeparator<R> {
     }
 }
 
+impl IntoIterator for Parser {
+    type Item = Result<ProcessedLine, ProcessedLine>;
+    type IntoIter = ProcessedLinesIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ProcessedLinesIterator {
+            lines_with_separator: self.lines_with_separator,
+            schema: self.schema,
+            current_line: 0,
+        }
+    }
+}
+
+impl Iterator for ProcessedLinesIterator {
+    type Item = Result<ProcessedLine, ProcessedLine>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // TODO: Enhance to handle line validation in parallel using rayon or async mechanisms.
+        self.lines_with_separator.next().map(|line| match line {
+            Ok(line) => {
+                self.current_line += 1;
+                let line_number = self.current_line;
+
+                match Parser::validate_line(&self.schema, line_number, line.to_owned()) {
+                    Ok(_) => Ok(ProcessedLine {
+                        line: line_number,
+                        message: line,
+                    }),
+                    Err(err) => Err(err),
+                }
+            }
+            Err(err) => Err(ProcessedLine {
+                line: 0,
+                message: format!("{}", err),
+            }),
+        })
+    }
+}
+
 impl Parser {
     pub fn new(config: ParserConfig) -> Self {
-        Self { config }
-    }
-
-    pub fn start(&self) -> Result<(), Vec<ValidationError>> {
-        let (sender, receiver): (Sender<LineNumberAndText>, Receiver<LineNumberAndText>) =
-            unbounded();
-        let file = File::open(self.config.file_path.clone()).context("Failed to open file");
+        let file = File::open(&config.file_path).context("Failed to open file");
         let file = match file {
             Ok(file) => file,
             Err(err) => {
-                return Err(vec![ValidationError {
-                    line: 0,
-                    message: format!("{}", err),
-                }]);
+                todo!("Handle error: {}", err);
             }
         };
         let reader = BufReader::new(file);
-        
-        let schema =
-            schema::Schema::load(&self.config.file_schema);
+
+        let schema = schema::Schema::load(&config.file_schema);
         let schema = match schema {
             Ok(schema) => schema,
             Err(err) => {
-                return Err(vec![ValidationError {
-                    line: 0,
-                    message: format!("{}", err),
-                }]);
+                todo!("Handle error: {}", err);
             }
         };
 
         let schema_line_separator = schema.get_line_separator();
 
-        let mut handles = vec![];
-        for _ in 0..self.config.n_workers {
-            let receiver = receiver.clone();
-            let schema = schema.clone();
+        let lines_with_separator = LinesWithSeparator::new(reader, schema_line_separator);
 
-            match self.config.fn_worker {
-                Some(worker) => {
-                    handles.push(thread::spawn(move || worker(receiver, schema)));
-                }
-                None => {
-                    handles.push(thread::spawn(move || Self::worker(receiver, schema)));
-                }
-            }
+        Self {
+            config,
+            schema,
+            lines_with_separator,
+        }
+    }
+
+    pub fn parser_all(&mut self, n_workers: usize) -> Result<(), Vec<ProcessedLine>> {
+        let (sender, receiver): (Sender<LineNumberAndText>, Receiver<LineNumberAndText>) =
+            unbounded();
+        let mut handles = vec![];
+        for _ in 0..n_workers {
+            let receiver = receiver.clone();
+            let schema = self.schema.clone();
+
+            //match self.config.fn_worker {
+            //    Some(fn_worker_handle) => {
+            //        handles.push(thread::spawn(move || fn_worker_handle(receiver, schema)));
+            //    }
+            //    None => {
+                    handles.push(thread::spawn(move || Self::worker_handle(receiver, schema)));
+            //    }
+            //}
         }
 
-        let lines: LinesWithSeparator<BufReader<File>> =
-            LinesWithSeparator::new(reader, schema_line_separator);
+        let lines = &mut self.lines_with_separator;
 
         let mut line_number = 1;
         for line_result in lines {
@@ -172,7 +224,7 @@ impl Parser {
             let line_text = match line_text {
                 Ok(line_text) => line_text,
                 Err(err) => {
-                    return Err(vec![ValidationError {
+                    return Err(vec![ProcessedLine {
                         line: line_number,
                         message: format!("{}", err),
                     }]);
@@ -180,12 +232,12 @@ impl Parser {
             };
 
             let result = sender
-                .send((line_number, line_text))
-                .context("Failed to send line to worker");
+                .send((line_number, line_text.to_owned()))
+                .context("Failed to send line to worker thread");
             match result {
                 Ok(_) => {}
                 Err(err) => {
-                    return Err(vec![ValidationError {
+                    return Err(vec![ProcessedLine {
                         line: line_number,
                         message: format!("{}", err),
                     }]); // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
@@ -196,16 +248,14 @@ impl Parser {
         }
         drop(sender);
 
-        let mut return_errors: Vec<ValidationError> = Vec::new();
+        let mut return_errors: Vec<ProcessedLine> = Vec::new();
         for handle in handles {
-            let results = handle.join().unwrap();
+            let results = handle.join().expect("Failed to join thread");
             for result in results {
                 match result {
-                    Ok(_line_number) => {
-                        // TODO: Add line to the report as processed successfully.
-                    }
+                    Ok(_) => {}
                     Err(v) => {
-                        return_errors.push(ValidationError {
+                        return_errors.push(ProcessedLine {
                             line: v.line,
                             message: v.message,
                         });
@@ -217,78 +267,19 @@ impl Parser {
         if !return_errors.is_empty() {
             return Err(return_errors);
         }
-        // TODO: Final report in the response format according to configuration (ParserConfig)
+
         Ok(())
     }
 
-    fn worker(
+    fn worker_handle(
         receiver: Receiver<LineNumberAndText>,
         schema: schema::Schema,
-    ) -> Vec<Result<usize, ValidationError>> {
-        let mut results: Vec<Result<usize, ValidationError>> = Vec::new();
-
-        let schema_lines_with_condition: Vec<(String, Vec<schema::Cell>)> =
-            schema.get_line_conditions().to_owned();
+    ) -> Vec<Result<ProcessedLine, ProcessedLine>> {
+        let mut results: Vec<Result<ProcessedLine, ProcessedLine>> = vec![];
 
         for (line_number, line_text) in receiver {
-            if schema.get_schema_type() == "fixedwidthschema" {
-                // Find the line type that matches the line condition (from schema)
-                let match_line_name: Option<Line> = Self::find_matching_schema_line_type(
-                    &line_text,
-                    &schema_lines_with_condition,
-                    schema.clone(),
-                );
-
-                let match_line_name: Line = match match_line_name {
-                    Some(line) => line,
-                    None => {
-                        results.push(Err(ValidationError {
-                            line: line_number,
-                            message: "[err:001]|line|no match found for schema line type"
-                                .to_string(),
-                        }));
-                        continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
-                    }
-                };
-
-                // Validate maxlength of the line
-                if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
-                    results.push(Err(ValidationError {
-                        line: line_number,
-                        message: format!(
-                            "[err:002]|line|maxlength|the line has length {} but was expected {}",
-                            line_text.len(),
-                            match_line_name.maxlength
-                        ),
-                    }));
-                    continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
-                }
-
-                // Validate each cell in the line
-                let mut first_error: Option<String> = None;
-                for cell in match_line_name.cell {
-                    match Self::validate_line(&cell, &line_text) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            first_error = err.to_string().into();
-                            break; // TODO: Add optional if the first error should stop processing other cells. (ParserConfig)
-                        }
-                    }
-                }
-
-                if first_error.is_some() {
-                    results.push(Err(ValidationError {
-                        line: line_number,
-                        message: first_error.unwrap_or("Unknown error".to_string()),
-                    }));
-                    continue; // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
-                }
-                results.push(Ok(line_number));
-            } else if schema.get_schema_type() == "delimitedschema" {
-                todo!("Delimited schema not implemented yet");
-            } else if schema.get_schema_type() == "csvschema" {
-                todo!("CSV schema not implemented yet");
-            }
+            let result = Self::validate_line(&schema, line_number, line_text);
+            results.push(result);
         }
 
         results
@@ -315,7 +306,7 @@ impl Parser {
                         <linecondition><match type="string" pattern="H"/></linecondition>
                     </cell>
                 */
-                match Self::validate_line(cell_line_condition, line_text) {
+                match Self::validate_cell(cell_line_condition, line_text) {
                     Ok(_) => {}
                     Err(_) => {
                         continue;
@@ -347,8 +338,81 @@ impl Parser {
 
         schema.get_line_by_linetype(match_line_name)
     }
-    
-    fn validate_line(cell: &schema::Cell, line_text: &str) -> Result<(), String> {
+
+    fn validate_line(
+        schema: &crate::Schema,
+        line_number: usize,
+        line_text: String,
+    ) -> Result<ProcessedLine, ProcessedLine> {
+        let schema_lines_with_condition: Vec<(String, Vec<schema::Cell>)> =
+            schema.get_line_conditions().to_owned();
+
+        if schema.get_schema_type() == "fixedwidthschema" {
+            // Find the line type that matches the line condition (from schema)
+            let match_line_name: Option<Line> = Parser::find_matching_schema_line_type(
+                &line_text,
+                &schema_lines_with_condition,
+                schema.clone(),
+            );
+
+            let match_line_name: Line = match match_line_name {
+                Some(line) => line,
+                None => {
+                    return Err(ProcessedLine {
+                        line: line_number,
+                        message: "[err:001]|line|no match found for schema line type".to_string(),
+                    });
+                    // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+                }
+            };
+
+            // Validate maxlength of the line
+            if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
+                return Err(ProcessedLine {
+                    line: line_number,
+                    message: format!(
+                        "[err:002]|line|maxlength|the line has length {} but was expected {}",
+                        line_text.len(),
+                        match_line_name.maxlength
+                    ),
+                });
+                // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+            }
+
+            // Validate each cell in the line
+            let mut first_error: Option<String> = None;
+            for cell in match_line_name.cell {
+                match Self::validate_cell(&cell, &line_text) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        first_error = err.to_string().into();
+                        break; // TODO: Add optional if the first error should stop processing other cells. (ParserConfig)
+                    }
+                }
+            }
+
+            if first_error.is_some() {
+                return Err(ProcessedLine {
+                    line: line_number,
+                    message: first_error.unwrap_or("Unknown error".to_string()),
+                });
+                // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+            }
+
+            Ok(ProcessedLine {
+                line: line_number,
+                message: line_text,
+            })
+        } else if schema.get_schema_type() == "delimitedschema" {
+            todo!("Delimited schema not implemented yet");
+        } else if schema.get_schema_type() == "csvschema" {
+            todo!("CSV schema not implemented yet");
+        } else {
+            todo!("Schema type not implemented yet");
+        }
+    }
+
+    fn validate_cell(cell: &schema::Cell, line_text: &str) -> Result<(), String> {
         let cell_name = &cell.name;
         let mut cell_alignment = cell.alignment.to_owned();
         let cell_padcharacter = &cell.padcharacter;
@@ -364,29 +428,28 @@ impl Parser {
             }
         };
         if let Some(format) = &cell.format {
-
             if cell_alignment.is_empty() && format.ctype == "number" {
                 cell_alignment = "right".to_string();
             } else if cell_alignment.is_empty() {
                 cell_alignment = "left".to_string();
             }
-            
+
             let cell_value = match cell_alignment.as_str() {
                 "right" => {
                     let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
                     let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
                     cell_value.trim_start_matches(cell_padcharacter_slice)
-                },
+                }
                 "left" => {
                     let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
                     let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
                     cell_value.trim_end_matches(cell_padcharacter_slice)
-                },
+                }
                 "center" => {
                     let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
                     let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
                     cell_value.trim_matches(cell_padcharacter_slice)
-                },
+                }
                 _ => cell_value,
             };
 
