@@ -15,7 +15,7 @@ rust-version = "1.70.0"
 xml-rs="0.8.20"
 crossbeam = "0.8.4"
 anyhow = "1.0.82"
-chrono = "0.4.37"
+chrono = "0.4.38"
 regex = "1.10.4"
 
 [[bench]]

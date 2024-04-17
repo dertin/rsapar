@@ -2,12 +2,20 @@ mod decimal_format;
 mod parser;
 mod schema;
 
+pub use decimal_format::*;
 pub use parser::*;
 pub use schema::*;
-pub use decimal_format::*;
 
-pub fn parser(config: parser::ParserConfig) -> Result<(), Vec<ValidationError>> {
-    parser::Parser::new(config).start()
+pub fn parser_all(
+    config: parser::ParserConfig,
+    n_workers: usize,
+) -> Result<(), Vec<ProcessedLine>> {
+    parser::Parser::new(config).parser_all(n_workers)
+}
+
+pub fn parser(config: parser::ParserConfig) -> ProcessedLinesIterator {
+    let parser = parser::Parser::new(config);
+    parser.into_iter()
 }
 
 #[cfg(test)]
@@ -18,30 +26,42 @@ mod tests {
     fn test_schema() {
         let schema: schema::Schema =
             schema::Schema::load("./example/schema.xml").expect("Failed to load schema");
+        
         assert!(schema.fixedwidthschema.is_some());
     }
-
     #[test]
-    fn test_parser() {
-        let parser = parser::Parser::new(parser::ParserConfig {
+    fn test_parser_all() {
+        let config = crate::ParserConfig {
             file_path: "./example/data.txt".to_string(),
-            fn_worker: None,
-            n_workers: 4,
             file_schema: "./example/schema.xml".to_string(),
-        });
-        let result = parser.start();
+        };
+
+        let result: Result<(), Vec<ProcessedLine>> = crate::parser_all(config, 4);
 
         match result {
-            Ok(_) => (),
+            Ok(_) => println!("All lines are processed"),
             Err(errors) => {
-                for v in errors {
-                    println!("Line {}: {:?}", v.line, v.message);
+                for error in errors {
+                    println!("Error at line {}: {}", error.line, error.message);
                 }
-                //panic!("Failed to parse file");
             }
         }
+    }
+    #[test]
+    fn test_parser() {
+        let config = crate::ParserConfig {
+            file_path: "./example/data.txt".to_string(),
+            file_schema: "./example/schema.xml".to_string(),
+        };
 
-        //assert!(result.is_ok(), "ERROR: {:?}", result.unwrap_err());
+        let lines = crate::parser(config);
+
+        for line_result in lines {
+            match line_result {
+                Ok(processed_line) => println!("{:?}", processed_line),
+                Err(e) => eprintln!("Error processing line: {:?}", e),
+            }
+        }
     }
 
     #[test]
@@ -57,7 +77,7 @@ mod tests {
         let pattern = "0.#0,##0";
         let formatter = decimal_format::DecimalFormat::new(pattern).unwrap();
         assert!(formatter.validate_number("2.20,125").is_ok());
-        
+
         let pattern = "';#'##0";
         let formatter = decimal_format::DecimalFormat::new(pattern).unwrap();
         assert!(formatter.validate_number(";#123").is_ok());
