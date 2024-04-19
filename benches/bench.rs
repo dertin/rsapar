@@ -19,16 +19,15 @@ fn bench_parse(c: &mut Criterion) {
     c.bench_function("parse", |b| {
         b.iter(|| {
             let config = rsapar::ParserConfig {
-                file_path: "./example/data.txt".to_string(),
-                file_schema: "./example/schema.xml".to_string(),
+                file_path: "./example/fixedwidth_data.txt".to_string(),
+                file_schema: "./example/fixedwidth_schema.xml".to_string(),
             };
-    
-            let lines = rsapar::parser(config);
-    
-            for line_result in lines {
-                match line_result {
-                    Ok(processed_line) => println!("{:?}", processed_line),
-                    Err(e) => eprintln!("Error processing line: {:?}", e),
+
+            let mut parser = rsapar::parser(config).unwrap();
+
+            for line_result in parser.iter_mut() {
+                if line_result.is_err() {
+                    panic!("Error processing line");
                 }
             }
         })

@@ -1,11 +1,9 @@
-use anyhow::Context;
-use anyhow::Error;
-use anyhow::Result;
-use anyhow::anyhow;
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::BufReader;
+use anyhow::{anyhow, Context, Error, Result};
+use chrono::NaiveDate;
+use std::{collections::HashSet, fs::File, io::BufReader};
 use xml::reader::{EventReader, XmlEvent};
+
+use crate::{decimal_format, ProcessedLine};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -62,16 +60,13 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn load(path: &str) -> Result<Schema, Error> {
+    pub fn new(path: &str) -> Result<Self, Error> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let parser = EventReader::new(file);
 
         let mut schema = Schema {
-            fixedwidthschema: Some(FixedWidthSchema {
-                lineseparator: "\n".to_string(),
-                lines: vec![],
-            }),
+            fixedwidthschema: Some(FixedWidthSchema { lineseparator: "\n".to_string(), lines: vec![] }),
             csvschema: None,
         };
 
@@ -92,9 +87,7 @@ impl Schema {
 
         for e in parser {
             match e {
-                Ok(XmlEvent::StartElement {
-                    name, attributes, ..
-                }) => match name.local_name.as_str() {
+                Ok(XmlEvent::StartElement { name, attributes, .. }) => match name.local_name.as_str() {
                     "fixedwidthschema" => {
                         for attr in attributes {
                             if attr.name.local_name == "lineseparator" {
@@ -116,25 +109,20 @@ impl Schema {
                         };
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "linetype" => 
-                                {
+                                "linetype" => {
                                     if seen_linetypes.contains(&attr.value) {
                                         return Err(anyhow!("Duplicate linetype: {}", attr.value));
                                     }
                                     seen_linetypes.insert(attr.value.clone());
                                     temp_line.linetype = attr.value;
-                                },
-                                "occurs" => temp_line.occurs = attr.value, // TODO: not used by the parser yet.
-                                "maxlength" => {
-                                    temp_line.maxlength = attr.value.parse().unwrap_or(0)
                                 }
+                                "occurs" => temp_line.occurs = attr.value, // TODO: not used by the parser yet.
+                                "maxlength" => temp_line.maxlength = attr.value.parse().unwrap_or(0),
                                 "minlength" => {
                                     // TODO: not used by the parser yet.
                                     temp_line.minlength = attr.value.parse().unwrap_or(0)
                                 }
-                                "padcharacter" => {
-                                    temp_line.padcharacter = attr.value
-                                }
+                                "padcharacter" => temp_line.padcharacter = attr.value,
                                 _ => (),
                             }
                         }
@@ -236,12 +224,8 @@ impl Schema {
             .lines
             .iter()
             .filter_map(|line| {
-                let cells_with_condition: Vec<_> = line
-                    .cell
-                    .iter()
-                    .filter(|cell| cell.linecondition_pattern.is_some())
-                    .cloned()
-                    .collect();
+                let cells_with_condition: Vec<_> =
+                    line.cell.iter().filter(|cell| cell.linecondition_pattern.is_some()).cloned().collect();
                 if cells_with_condition.is_empty() {
                     None
                 } else {
@@ -256,11 +240,7 @@ impl Schema {
         let lines_without_condition: Vec<_> = binding
             .lines
             .iter()
-            .filter(|line| {
-                line.cell
-                    .iter()
-                    .all(|cell| cell.linecondition_pattern.is_none())
-            })
+            .filter(|line| line.cell.iter().all(|cell| cell.linecondition_pattern.is_none()))
             .cloned()
             .collect();
 
@@ -284,15 +264,11 @@ impl Schema {
 
     pub fn get_line_by_linetype(&self, linetype: &str) -> Option<Line> {
         let binding = self.get_binding();
-        let line = binding
-            .lines
-            .iter()
-            .find(|line| line.linetype == linetype)
-            .cloned();
+        let line = binding.lines.iter().find(|line| line.linetype == linetype).cloned();
         line
     }
 
-    pub fn get_line_separator(&self) -> String {
+    pub fn get_newline_characters(&self) -> String {
         let binding = self.get_binding();
         binding.lineseparator
     }
@@ -306,5 +282,187 @@ impl Schema {
             None => todo!("invalid schema"),
         };
         binding
+    }
+
+    pub fn find_matching_schema_line_type(
+        &self, line_text: &str, schema_lines_with_condition: &Vec<(String, Vec<Cell>)>,
+    ) -> Option<Line> {
+        let mut match_line_name = "";
+        for (line_name, cell_conditions) in schema_lines_with_condition {
+            let mut line_condition_met = false;
+            for cell_line_condition in cell_conditions {
+                let cell_value: &str = &line_text[cell_line_condition.start..cell_line_condition.end];
+
+                /*
+                Validate the cell value previously to check the line condition
+                When there is a <format> together with a <linecondition>
+
+                    <cell name="Foo" length="5">
+                        <format type="regex" pattern=".*"/>
+                        <linecondition><match type="string" pattern="H"/></linecondition>
+                    </cell>
+                */
+                match Self::validate_cell(cell_line_condition.clone(), line_text) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        continue;
+                    }
+                }
+
+                // Check if the line condition is met
+                // TODO: Add support for other linecondition types (e.g. regex, number, ...)
+                if cell_line_condition.linecondition_type.is_none()
+                    || cell_line_condition.linecondition_type == Some("string".to_string())
+                {
+                    line_condition_met = cell_value == cell_line_condition.linecondition_pattern.as_ref().unwrap();
+                } else {
+                    todo!("Line condition type not implemented yet");
+                }
+            }
+            if line_condition_met {
+                match_line_name = line_name;
+                break;
+            }
+        }
+
+        if match_line_name.is_empty() {
+            // Get only the first line without conditions.
+            // If there is more than one line without conditions, in that case it should return None.
+            return self.get_first_line_without_condition();
+        }
+
+        self.get_line_by_linetype(match_line_name)
+    }
+
+    pub fn validate_line(&self, line_number: usize, line_text: String) -> Result<ProcessedLine, ProcessedLine> {
+        let schema_lines_with_condition: Vec<(String, Vec<Cell>)> = self.get_line_conditions().to_owned();
+
+        if self.get_schema_type() == "fixedwidthschema" {
+            // Find the line type that matches the line condition (from schema)
+            let match_line_name: Option<Line> =
+                self.find_matching_schema_line_type(&line_text, &schema_lines_with_condition);
+
+            let match_line_name: Line = match match_line_name {
+                Some(line) => line,
+                None => {
+                    return Err(ProcessedLine {
+                        line_number,
+                        message: "[err:001]|line|no match found for schema line type".to_string(),
+                    });
+                    // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+                }
+            };
+
+            // Validate maxlength of the line
+            if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
+                return Err(ProcessedLine {
+                    line_number,
+                    message: format!(
+                        "[err:002]|line|maxlength|the line has length {} but was expected {}",
+                        line_text.len(),
+                        match_line_name.maxlength
+                    ),
+                });
+                // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+            }
+
+            // Validate each cell in the line
+            let mut first_error: Option<String> = None;
+            for cell in match_line_name.cell {
+                match Self::validate_cell(cell, &line_text) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        first_error = err.to_string().into();
+                        break; // TODO: Add optional if the first error should stop processing other cells. (ParserConfig)
+                    }
+                }
+            }
+
+            if first_error.is_some() {
+                return Err(ProcessedLine { line_number, message: first_error.unwrap_or("Unknown error".to_string()) });
+                // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
+            }
+
+            Ok(ProcessedLine { line_number, message: line_text })
+        } else if self.get_schema_type() == "delimitedschema" {
+            todo!("Delimited schema not implemented yet");
+        } else if self.get_schema_type() == "csvschema" {
+            todo!("CSV schema not implemented yet");
+        } else {
+            todo!("Schema type not implemented yet");
+        }
+    }
+
+    fn validate_cell(cell: Cell, line_text: &str) -> Result<(), String> {
+        let cell_name = &cell.name;
+        let mut cell_alignment = cell.alignment.to_owned();
+        let cell_padcharacter = &cell.padcharacter;
+
+        let cell_value: Option<&str> = line_text.get(cell.start..cell.end);
+        let cell_value = match cell_value {
+            Some(cell_value) => cell_value,
+            None => {
+                return Err(format!("[err:003]|{}|invalid range [{}]-[{}]", cell_name, cell.start, cell.end));
+            }
+        };
+        if let Some(format) = &cell.format {
+            if cell_alignment.is_empty() && format.ctype == "number" {
+                cell_alignment = "right".to_string();
+            } else if cell_alignment.is_empty() {
+                cell_alignment = "left".to_string();
+            }
+
+            let cell_value = match cell_alignment.as_str() {
+                "right" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_start_matches(cell_padcharacter_slice)
+                }
+                "left" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_end_matches(cell_padcharacter_slice)
+                }
+                "center" => {
+                    let cell_padcharacter_vec: Vec<char> = cell_padcharacter.chars().collect();
+                    let cell_padcharacter_slice: &[char] = &cell_padcharacter_vec;
+                    cell_value.trim_matches(cell_padcharacter_slice)
+                }
+                _ => cell_value,
+            };
+
+            // TODO: add more validation for other format types (e.g. number, regex, ...)
+            if format.ctype == "date" {
+                // validate date format in cell_value
+                let dt = NaiveDate::parse_from_str(cell_value, &format.pattern);
+                match dt {
+                    Ok(_) => {
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        return Err(format!("[err:004]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                    }
+                }
+            } else if format.ctype == "string" {
+                // Validate regex format in cell_value
+                let re = regex::Regex::new(&format.pattern).unwrap();
+                if re.is_match(cell_value) {
+                    return Ok(());
+                } else {
+                    return Err(format!("[err:005]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                }
+            } else if format.ctype == "number" {
+                let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
+                match formatter.validate_number(cell_value) {
+                    Ok(_) => {
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        return Err(format!("[err:006]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

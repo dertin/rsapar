@@ -54,10 +54,8 @@ impl DecimalFormat {
         }
 
         let positive_pattern = patterns.first().ok_or("Missing positive pattern")?.clone();
-        let negative_pattern = patterns
-            .get(1)
-            .map(|p| format!("-{}", p))
-            .unwrap_or_else(|| format!("-{}", positive_pattern));
+        let negative_pattern =
+            patterns.get(1).map(|p| format!("-{}", p)).unwrap_or_else(|| format!("-{}", positive_pattern));
 
         let positive_pattern = Self::pattern_to_regex(&positive_pattern);
         let negative_pattern = Self::pattern_to_regex(&negative_pattern);
@@ -65,10 +63,7 @@ impl DecimalFormat {
         let positive_regex = Regex::new(&positive_pattern).map_err(|_| "Invalid regex pattern")?;
         let negative_regex = Regex::new(&negative_pattern).map_err(|_| "Invalid regex pattern")?;
 
-        let decimal_format = DecimalFormat {
-            positive_regex,
-            negative_regex,
-        };
+        let decimal_format = DecimalFormat { positive_regex, negative_regex };
 
         cache_guard.insert(pattern.to_string(), decimal_format.clone());
 
@@ -106,7 +101,8 @@ impl DecimalFormat {
                     ',' => regex_pattern.push_str("\\,"),
                     '.' => regex_pattern.push_str("\\."),
                     ';' => regex_pattern.push_str("\\;"),
-                    '¤' => regex_pattern.push_str("\\$"), // TODO: Add the international currency symbol.
+                    '¤' => regex_pattern.push_str("\\$"), /* TODO: Add the international */
+                    // currency symbol.
                     _ => regex_pattern.push(c),
                 }
             }
