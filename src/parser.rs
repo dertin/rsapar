@@ -25,14 +25,6 @@ pub struct ReadLine {
 pub struct ParserConfig {
     pub file_path: String,
     pub file_schema: String,
-    //#[deprecated]
-    //pub fn_worker: Option<WorkerFunction>,
-    //#[deprecated]
-    //pub n_workers: usize,
-    //#[deprecated]
-    //pub fn_worker: Option<WorkerFunction>,
-    //#[deprecated]
-    //pub n_workers: usize,
     // TODO: add more configuration options. result_file_path, error_file_path, result_type, ...
 }
 
