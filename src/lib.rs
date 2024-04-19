@@ -28,7 +28,6 @@ mod tests {
 
         assert!(schema.fixedwidthschema.is_some());
     }
-
     #[test]
     fn test_parser() {
         let config = crate::ParserConfig {
@@ -169,6 +168,7 @@ mod tests {
         let formatter = decimal_format::DecimalFormat::new(pattern).unwrap();
         assert!(formatter.validate_number("2.20,125").is_ok());
 
+
         let pattern = "';#'##0";
         let formatter = decimal_format::DecimalFormat::new(pattern).unwrap();
         assert!(formatter.validate_number(";#123").is_ok());
@@ -178,3 +178,4 @@ mod tests {
         assert!(formatter.validate_number("00204000.00").is_ok());
     }
 }
+
