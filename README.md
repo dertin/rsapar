@@ -16,38 +16,19 @@ Here's a step-by-step guide on how to get started:
 
 3. **Configure the parser:** Set up the parser configuration with the path to your data file, the number of workers, and the path to your schema file.
 
-    Example parser all lines:
+    Example:
     ```rust
-    let config = rsapar::ParserConfig {
-        file_path: "./example/data.txt".to_string(),
-        file_schema: "./example/schema.xml".to_string(),
+    let config = crate::ParserConfig {
+        file_path: "./example/fixedwidth_data.txt".to_string(),
+        file_schema: "./example/fixedwidth_schema.xml".to_string(),
     };
-    let n_workers = 4; // Number of workers to be used for parallel processing of all lines.
-    
-    let result: Result<(), Vec<rsapar::ValidationError>> = rsapar::parser_all(config, n_workers);
 
-    match result {
-        Ok(_) => println!("All lines are processed"),
-        Err(errors) => {
-            for error in errors {
-                println!("Error at line {}: {}", error.line, error.message);
-            }
-        }
-    }
-    ```
-    Example parser line by line:
-    ```rust
-    let config = rsapar::ParserConfig {
-        file_path: "./example/data.txt".to_string(),
-        file_schema: "./example/schema.xml".to_string(),
-    };
-    
-    let lines = rsapar::parser(config);
+    let mut parser = crate::parser(config).unwrap();
 
-    for line_result in lines {
+    for line_result in parser.iter_mut() {
         match line_result {
             Ok(processed_line) => println!("{:?}", processed_line),
-            Err(e) => println!("Error processing line: {:?}", e),
+            Err(processed_line) => println!("Error processing line: {:?}", processed_line),
         }
     }
     ```
