@@ -65,12 +65,12 @@ mod tests {
             let schema = parser.schema.clone();
 
             handles.push(thread::spawn(move || {
-                let mut return_errors: Vec<ProcessedLine> = Vec::new();
+                let mut return_errors: Vec<ProcessedLineError> = Vec::new();
                 for (line_number, line_content) in receiver {
                     match schema.validate_line(line_number, line_content) {
                         Ok(_) => {}
                         Err(v) => {
-                            return_errors.push(ProcessedLine { line_number: v.line_number, message: v.message });
+                            return_errors.push(ProcessedLineError { line_number: v.line_number, message: v.message });
                         }
                     }
                 }
@@ -99,7 +99,7 @@ mod tests {
         }
         drop(sender);
 
-        let mut return_errors: Vec<ProcessedLine> = Vec::new();
+        let mut return_errors: Vec<ProcessedLineError> = Vec::new();
         for handle in handles {
             let results = handle.join().expect("Failed to join thread");
             for result in results {
@@ -141,7 +141,7 @@ mod tests {
                             Err(processed_line) => Err(processed_line),
                         }
                     }
-                    Err(e) => Err(ProcessedLine { line_number: 0, message: format!("{}", e) }),
+                    Err(e) => Err(ProcessedLineError { line_number: 0, message: format!("{}", e) }),
                 }
             })
             .for_each(|result_processed_line| match result_processed_line {

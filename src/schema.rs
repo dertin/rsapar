@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context, Error, Result};
 use chrono::NaiveDate;
-use std::{collections::HashSet, fs::File, io::BufReader};
+use std::{collections::{HashMap, HashSet}, fs::File, io::BufReader};
 use xml::reader::{EventReader, XmlEvent};
 
-use crate::{decimal_format, ProcessedLine};
+use crate::{decimal_format, ProcessedLineError, ProcessedLineOk};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -302,7 +302,7 @@ impl Schema {
                         <linecondition><match type="string" pattern="H"/></linecondition>
                     </cell>
                 */
-                match Self::validate_cell(cell_line_condition.clone(), line_text) {
+                match Self::validate_cell(cell_line_condition, line_text) {
                     Ok(_) => {}
                     Err(_) => {
                         continue;
@@ -334,7 +334,7 @@ impl Schema {
         self.get_line_by_linetype(match_line_name)
     }
 
-    pub fn validate_line(&self, line_number: usize, line_text: String) -> Result<ProcessedLine, ProcessedLine> {
+    pub fn validate_line(&self, line_number: usize, line_text: String) -> Result<ProcessedLineOk, ProcessedLineError> {
         let schema_lines_with_condition: Vec<(String, Vec<Cell>)> = self.get_line_conditions().to_owned();
 
         if self.get_schema_type() == "fixedwidthschema" {
@@ -345,7 +345,7 @@ impl Schema {
             let match_line_name: Line = match match_line_name {
                 Some(line) => line,
                 None => {
-                    return Err(ProcessedLine {
+                    return Err(ProcessedLineError {
                         line_number,
                         message: "[err:001]|line|no match found for schema line type".to_string(),
                     });
@@ -355,7 +355,7 @@ impl Schema {
 
             // Validate maxlength of the line
             if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
-                return Err(ProcessedLine {
+                return Err(ProcessedLineError {
                     line_number,
                     message: format!(
                         "[err:002]|line|maxlength|the line has length {} but was expected {}",
@@ -367,10 +367,14 @@ impl Schema {
             }
 
             // Validate each cell in the line
+            let mut cell_values: HashMap<String, String> = Default::default();
+
             let mut first_error: Option<String> = None;
             for cell in match_line_name.cell {
-                match Self::validate_cell(cell, &line_text) {
-                    Ok(_) => {}
+                match Self::validate_cell(&cell, &line_text) {
+                    Ok(cell_value) => {
+                        cell_values.insert(cell.name, cell_value);
+                    }
                     Err(err) => {
                         first_error = err.to_string().into();
                         break; // TODO: Add optional if the first error should stop processing other cells. (ParserConfig)
@@ -379,11 +383,11 @@ impl Schema {
             }
 
             if first_error.is_some() {
-                return Err(ProcessedLine { line_number, message: first_error.unwrap_or("Unknown error".to_string()) });
+                return Err(ProcessedLineError { line_number, message: first_error.unwrap_or("Unknown error".to_string()) });
                 // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
             }
 
-            Ok(ProcessedLine { line_number, message: line_text })
+            Ok(ProcessedLineOk { line_number, cell_values})
         } else if self.get_schema_type() == "delimitedschema" {
             todo!("Delimited schema not implemented yet");
         } else if self.get_schema_type() == "csvschema" {
@@ -393,7 +397,7 @@ impl Schema {
         }
     }
 
-    fn validate_cell(cell: Cell, line_text: &str) -> Result<(), String> {
+    fn validate_cell(cell: &Cell, line_text: &str) -> Result<String, String> {
         let cell_name = &cell.name;
         let mut cell_alignment = cell.alignment.to_owned();
         let cell_padcharacter = &cell.padcharacter;
@@ -437,7 +441,7 @@ impl Schema {
                 let dt = NaiveDate::parse_from_str(cell_value, &format.pattern);
                 match dt {
                     Ok(_) => {
-                        return Ok(());
+                        return Ok(cell_value.to_string());
                     }
                     Err(_) => {
                         return Err(format!("[err:004]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
@@ -447,7 +451,7 @@ impl Schema {
                 // Validate regex format in cell_value
                 let re = regex::Regex::new(&format.pattern).unwrap();
                 if re.is_match(cell_value) {
-                    return Ok(());
+                    return Ok(cell_value.to_string());
                 } else {
                     return Err(format!("[err:005]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
                 }
@@ -455,7 +459,7 @@ impl Schema {
                 let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
                 match formatter.validate_number(cell_value) {
                     Ok(_) => {
-                        return Ok(());
+                        return Ok(cell_value.to_string());
                     }
                     Err(_) => {
                         return Err(format!("[err:006]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
@@ -463,6 +467,6 @@ impl Schema {
                 }
             }
         }
-        Ok(())
+        Ok(cell_value.to_string())
     }
 }
