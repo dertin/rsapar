@@ -3,15 +3,24 @@ use anyhow::Error;
 use anyhow::Result;
 
 use crossbeam::channel::Receiver;
+use std::collections::HashMap;
 use std::fs::File;
+
 use std::io::{BufRead, BufReader};
 
 use crate::schema;
 
-pub type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<ProcessedLine, ProcessedLine>>;
+pub type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<ProcessedLineOk, ProcessedLineError>>;
+
 
 #[derive(Debug)]
-pub struct ProcessedLine {
+pub struct ProcessedLineOk {
+    pub line_number: usize,
+    pub cell_values: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+pub struct ProcessedLineError {
     pub line_number: usize,
     pub message: String,
 }
@@ -153,18 +162,18 @@ impl Parser {
         std::iter::from_fn(move || self.file_buffer.next())
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = Result<ProcessedLine, ProcessedLine>> + '_ {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = Result<ProcessedLineOk, ProcessedLineError>> + '_ {
         let schema = self.schema.clone();
 
         self.lines().map(move |result_read_line| {
             let read_line = match result_read_line {
                 Ok(read_line) => read_line,
                 Err(err) => {
-                    return Err(ProcessedLine { line_number: 0, message: format!("{:?}", err) });
+                    return Err(ProcessedLineError { line_number: 0, message: format!("{:?}", err) });
                 }
             };
 
-            let result: Result<ProcessedLine, ProcessedLine> =
+            let result: Result<ProcessedLineOk, ProcessedLineError> =
                 schema.validate_line(read_line.line_number, read_line.line_content.to_owned());
             match result {
                 Ok(processed_line) => Ok(processed_line),
