@@ -17,6 +17,7 @@ crossbeam = "0.8.4"
 anyhow = "1.0.82"
 chrono = "0.4.38"
 regex = "1.10.4"
+indexmap = "2.2.6"
 
 [[bench]]
 name = "bench"

@@ -3,20 +3,20 @@ use anyhow::Error;
 use anyhow::Result;
 
 use crossbeam::channel::Receiver;
-use std::collections::HashMap;
+use indexmap::map::IndexMap;
 use std::fs::File;
 
 use std::io::{BufRead, BufReader};
 
 use crate::schema;
 
-pub type WorkerFunction = fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<ProcessedLineOk, ProcessedLineError>>;
-
+pub type WorkerFunction =
+    fn(Receiver<(usize, String)>, schema::Schema) -> Vec<Result<ProcessedLineOk, ProcessedLineError>>;
 
 #[derive(Debug)]
 pub struct ProcessedLineOk {
     pub line_number: usize,
-    pub cell_values: HashMap<String, String>,
+    pub cell_values: IndexMap<String, String>,
 }
 
 #[derive(Debug)]

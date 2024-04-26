@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Error, Result};
 use chrono::NaiveDate;
-use std::{collections::{HashMap, HashSet}, fs::File, io::BufReader};
+use std::{collections::HashSet, fs::File, io::BufReader};
+use indexmap::map::IndexMap;
 use xml::reader::{EventReader, XmlEvent};
 
 use crate::{decimal_format, ProcessedLineError, ProcessedLineOk};
@@ -367,7 +368,7 @@ impl Schema {
             }
 
             // Validate each cell in the line
-            let mut cell_values: HashMap<String, String> = Default::default();
+            let mut cell_values: IndexMap<String, String> = Default::default();
 
             let mut first_error: Option<String> = None;
             for cell in match_line_name.cell {

@@ -28,6 +28,7 @@ mod tests {
 
         assert!(schema.fixedwidthschema.is_some());
     }
+
     #[test]
     fn test_parser() {
         let config = crate::ParserConfig {
