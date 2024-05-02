@@ -13,3 +13,7 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 .vscode/settings.json
+
+# Ignore the example files
+example/report_*.txt
+example/*_data.txt

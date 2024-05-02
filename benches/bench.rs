@@ -1,4 +1,4 @@
-use rsapar::DecimalFormat;
+use rsapar::{DecimalFormat, Parser, ParserConfig};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -18,12 +18,12 @@ fn bench_decimal_format_new(c: &mut Criterion) {
 fn bench_parse(c: &mut Criterion) {
     c.bench_function("parse", |b| {
         b.iter(|| {
-            let config = rsapar::ParserConfig {
+            let config = ParserConfig {
                 file_path: "./example/fixedwidth_data.txt".to_string(),
                 file_schema: "./example/fixedwidth_schema.xml".to_string(),
             };
 
-            let mut parser = rsapar::parser(config).unwrap();
+            let mut parser = Parser::new(config).unwrap();
 
             for line_result in parser.iter_mut() {
                 if line_result.is_err() {

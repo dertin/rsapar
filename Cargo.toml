@@ -18,6 +18,10 @@ anyhow = "1.0.82"
 chrono = "0.4.38"
 regex = "1.10.4"
 indexmap = "2.2.6"
+evalexpr = { version = "11.3.0", optional = true }
+
+[features]
+experimental_convert = ["evalexpr"]
 
 [[bench]]
 name = "bench"
