@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Error, Result};
 use chrono::NaiveDate;
-use std::{collections::HashSet, fs::File, io::BufReader};
 use indexmap::map::IndexMap;
+use std::{collections::HashSet, fs::File, io::BufReader};
 use xml::reader::{EventReader, XmlEvent};
 
 use crate::{decimal_format, ProcessedLineError, ProcessedLineOk};
@@ -236,7 +236,7 @@ impl Schema {
             .collect()
     }
 
-    pub fn get_first_line_without_condition(&self) -> Option<Line> {
+    pub fn get_first_line_without_condition(&self) -> Option<(String, Line)> {
         let binding = self.get_binding();
         let lines_without_condition: Vec<_> = binding
             .lines
@@ -250,7 +250,10 @@ impl Schema {
             return None;
         }
 
-        lines_without_condition.first().cloned()
+        match lines_without_condition.first().cloned() {
+            Some(line) => Some((line.linetype.to_owned(), line)),
+            None => None,
+        }
     }
 
     pub fn get_schema_type(&self) -> &str {
@@ -285,9 +288,9 @@ impl Schema {
         binding
     }
 
-    pub fn find_matching_schema_line_type(
+    pub fn find_matching_schema_linetype(
         &self, line_text: &str, schema_lines_with_condition: &Vec<(String, Vec<Cell>)>,
-    ) -> Option<Line> {
+    ) -> Option<(String, Line)> {
         let mut match_line_name = "";
         for (line_name, cell_conditions) in schema_lines_with_condition {
             let mut line_condition_met = false;
@@ -332,7 +335,9 @@ impl Schema {
             return self.get_first_line_without_condition();
         }
 
-        self.get_line_by_linetype(match_line_name)
+        let line: Option<Line> = self.get_line_by_linetype(match_line_name);
+
+        line.map(|line| (match_line_name.to_owned(), line))
     }
 
     pub fn validate_line(&self, line_number: usize, line_text: String) -> Result<ProcessedLineOk, ProcessedLineError> {
@@ -340,11 +345,11 @@ impl Schema {
 
         if self.get_schema_type() == "fixedwidthschema" {
             // Find the line type that matches the line condition (from schema)
-            let match_line_name: Option<Line> =
-                self.find_matching_schema_line_type(&line_text, &schema_lines_with_condition);
+            let match_line: Option<(String, Line)> =
+                self.find_matching_schema_linetype(&line_text, &schema_lines_with_condition);
 
-            let match_line_name: Line = match match_line_name {
-                Some(line) => line,
+            let (linetype, match_line) = match match_line {
+                Some(match_line) => (match_line.0, match_line.1),
                 None => {
                     return Err(ProcessedLineError {
                         line_number,
@@ -355,13 +360,13 @@ impl Schema {
             };
 
             // Validate maxlength of the line
-            if match_line_name.maxlength > 0 && line_text.len() != match_line_name.maxlength {
+            if match_line.maxlength > 0 && line_text.len() != match_line.maxlength {
                 return Err(ProcessedLineError {
                     line_number,
                     message: format!(
                         "[err:002]|line|maxlength|the line has length {} but was expected {}",
                         line_text.len(),
-                        match_line_name.maxlength
+                        match_line.maxlength
                     ),
                 });
                 // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
@@ -371,7 +376,7 @@ impl Schema {
             let mut cell_values: IndexMap<String, String> = Default::default();
 
             let mut first_error: Option<String> = None;
-            for cell in match_line_name.cell {
+            for cell in match_line.cell {
                 match Self::validate_cell(&cell, &line_text) {
                     Ok(cell_value) => {
                         cell_values.insert(cell.name, cell_value);
@@ -384,11 +389,14 @@ impl Schema {
             }
 
             if first_error.is_some() {
-                return Err(ProcessedLineError { line_number, message: first_error.unwrap_or("Unknown error".to_string()) });
+                return Err(ProcessedLineError {
+                    line_number,
+                    message: first_error.unwrap_or("Unknown error".to_string()),
+                });
                 // TODO: Add optional if the first error should stop processing other lines. (ParserConfig)
             }
 
-            Ok(ProcessedLineOk { line_number, cell_values})
+            Ok(ProcessedLineOk { line_number, cell_values, linetype })
         } else if self.get_schema_type() == "delimitedschema" {
             todo!("Delimited schema not implemented yet");
         } else if self.get_schema_type() == "csvschema" {
@@ -469,5 +477,19 @@ impl Schema {
             }
         }
         Ok(cell_value.to_string())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_fixedwidthschema() {
+        let schema: Schema = Schema::new("./example/fixedwidth_schema.xml").expect("Failed to load schema");
+
+        assert!(schema.fixedwidthschema.is_some());
     }
 }

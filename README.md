@@ -22,8 +22,8 @@ Here's a step-by-step guide on how to get started:
         file_path: "./example/fixedwidth_data.txt".to_string(),
         file_schema: "./example/fixedwidth_schema.xml".to_string(),
     };
-
-    let mut parser = crate::parser(config).unwrap();
+    
+    let mut parser = Parser::new(config).unwrap();
 
     for line_result in parser.iter_mut() {
         match line_result {
