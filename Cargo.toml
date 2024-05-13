@@ -28,6 +28,9 @@ name = "bench"
 path = "benches/bench.rs"
 harness = false
 
+[profile.bench]
+debug = true
+
 [dev-dependencies]
 rayon = "1.10.0"
 criterion = { version = "0.5.1", features = ["async_tokio"] }

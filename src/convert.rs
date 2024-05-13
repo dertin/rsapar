@@ -154,8 +154,13 @@ impl Convert {
     ///
     /// # Example
     ///
-    /// ```no_run
-    ///
+    /// ```rust
+    /// 
+    /// use rsapar::ParserConfig;
+    /// use rsapar::Parser;
+    /// use rsapar::ConvertConfig;
+    /// use rsapar::Convert;
+    /// 
     /// let tpl_config = ConvertConfig {
     ///     file_output_path: "./example/report_output.txt".to_string(),
     ///     file_template_path: "./example/convert_blocks.xml".to_string(),
@@ -553,12 +558,13 @@ impl Convert {
 
 #[cfg(test)]
 mod tests {
-
+    
     use super::*;
     use crate::{parser::Parser, ParserConfig};
 
     #[test]
     fn test_convert() {
+
         let file_output_path = "./example/report_output.txt";
         let file_template_path = "./example/convert_blocks.xml";
         let tpl_config = ConvertConfig {

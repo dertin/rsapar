@@ -175,7 +175,7 @@ impl Parser {
         let schema_line_newline_characters = schema.get_newline_characters();
 
         // Create a file buffer to handle reading and processing of lines
-        let file_buffer = FileBuffer::new(reader, schema_line_newline_characters);
+        let file_buffer = FileBuffer::new(reader, schema_line_newline_characters.to_owned());
 
         Ok(Self { config, schema, file_buffer })
     }

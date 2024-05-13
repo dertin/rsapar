@@ -11,6 +11,7 @@ use crate::{decimal_format, ProcessedLineError, ProcessedLineOk};
 pub struct Format {
     pub ctype: String,
     pub pattern: String,
+    pub regex_pattern: Option<regex::Regex>,
 }
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -153,7 +154,18 @@ impl Schema {
                                 _ => (),
                             }
                         }
-                        temp_format = Some(Format { ctype, pattern });
+
+                        let mut regex_pattern = None;
+                        if ctype == "string" {
+                            regex_pattern = match regex::Regex::new(&pattern) {
+                                Ok(re) => Some(re),
+                                Err(e) => {
+                                    return Err(e).context(format!("Error compiling regex pattern: {}", pattern));
+                                }
+                            };
+                        }
+                        
+                        temp_format = Some(Format { ctype, pattern, regex_pattern});
                     }
                     "match" if in_cell => {
                         let mut matchtype = String::new();
@@ -265,21 +277,21 @@ impl Schema {
 
     /// Get the newline characters
     /// Example: "\n", "\r\n", ...
-    pub fn get_newline_characters(&self) -> String {
+    pub fn get_newline_characters(&self) -> &str {
         let binding = self.get_binding();
-        binding.lineseparator
+        &binding.lineseparator
     }
 
     /// Get binding schema (fixed width or csv)
-    fn get_binding(&self) -> FixedWidthSchema {
+    fn get_binding(&self) -> &FixedWidthSchema {
         // For now it is only implemented for fixed width scheme.
-        // TODO: implement for CSV schema (should be equal to fixed width)
-        let fixedwidthschema: &Option<FixedWidthSchema> = &self.fixedwidthschema; // hardcoded to fixed width
-        let binding: FixedWidthSchema = match fixedwidthschema {
-            Some(fixedwidthschema) => fixedwidthschema.to_owned(),
-            None => todo!("invalid schema"),
-        };
-        binding
+        match self.fixedwidthschema.as_ref() {
+            Some(fixed_width_schema) => fixed_width_schema,
+            None => {
+                // TODO: implement for CSV schema (should be equal to fixed width)
+                panic!("Schema not implemented yet");
+            }
+        }
     }
 
     /// Find the line type that matches the line condition
@@ -333,6 +345,16 @@ impl Schema {
         let line: Option<Line> = self.get_line_by_linetype(match_line_name);
 
         line.map(|line| (match_line_name.to_owned(), line))
+    }
+
+    /// Compiled regex for line condition
+    pub fn compile_line_condition(&self, line_condition: &LineCondition) -> regex::Regex {
+        regex::Regex::new(&line_condition.matchpattern).unwrap()
+    }
+
+    /// Compiled regex for cell format
+    pub fn compile_cell_format(&self, format: &Format) -> regex::Regex {
+        regex::Regex::new(&format.pattern).unwrap()
     }
 
     /// Validate a line
@@ -474,12 +496,16 @@ impl Schema {
                 }
             } else if format.ctype == "string" {
                 // Validate regex format in cell_value
-                let re = regex::Regex::new(&format.pattern).unwrap();
-                if re.is_match(cell_value) {
-                    return Ok(cell_value.to_string());
+                if let Some(re) = &format.regex_pattern {
+                    if re.is_match(cell_value) {
+                        return Ok(cell_value.to_string());
+                    } else {
+                        return Err(format!("[err:005]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
+                    }
                 } else {
-                    return Err(format!("[err:005]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
+                    return Err(format!("[err:006]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
                 }
+                
             } else if format.ctype == "number" {
                 let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
                 match formatter.validate_number(cell_value) {
@@ -487,7 +513,7 @@ impl Schema {
                         return Ok(cell_value.to_string());
                     }
                     Err(_) => {
-                        return Err(format!("[err:006]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
+                        return Err(format!("[err:007]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
                     }
                 }
             }
