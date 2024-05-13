@@ -5,14 +5,16 @@
 Id   | Amount      | Email          | Total
 ----------------------------------------------------------------\n</block>
 
-<block linetype="Body" condition="line != 2">{{UserID}} | {{Amount}} | {{email}} | {{sum(Amount)}}\n</block>
+<block linetype="Body" condition="line != 2">{{UserID}} | {{Amount}} | {{email}} | {{avg(Amount)}} {{sum(Amount)}}\n</block>
 
-<block linetype="Body" condition="line == 2">{{UserID}} - {{Amount}} - {{email}} - {{avg(Amount)}}</block>
+<block linetype="Body" condition="line == 2">{{UserID}} - {{Amount}} - {{email}} - {{avg(Amount)}} {{sum(Amount)}}</block>
 
 <block linetype="Body" condition="line == 2"> - TEST\n</block>
 
 <block condition="EOF">----------------------------------------------------------------
-Total: {{len(Body)}}
+Total Header: {{count(Header)}}
+Total Body: {{count(Body)}}
+Total Footer: {{count(Footer)}}
 ----------------------------------------------------------------</block>
 
 </blocks>

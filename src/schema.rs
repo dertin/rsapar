@@ -17,8 +17,19 @@ pub struct Format {
 pub struct LineCondition {
     pub matchpattern: String,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct Line {
+    pub linetype: String,
+    pub maxlength: usize,
+    pub occurs: String,
+    pub cell: Vec<Cell>,
+    pub minlength: usize,
+    pub padcharacter: String,
+}
+
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Cell {
     pub name: String,
     pub length: usize,
@@ -31,17 +42,7 @@ pub struct Cell {
     pub padcharacter: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct Line {
-    pub linetype: String,
-    pub maxlength: usize,
-    pub occurs: String,
-    pub cell: Vec<Cell>,
-    pub minlength: usize,
-    pub padcharacter: String,
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct FixedWidthSchema {
     pub lineseparator: String,
     pub lines: Vec<Line>,
@@ -61,24 +62,15 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Load schema from XML file
     pub fn new(path: &str) -> Result<Self, Error> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let parser = EventReader::new(file);
 
-        let mut schema = Schema {
-            fixedwidthschema: Some(FixedWidthSchema { lineseparator: "\n".to_string(), lines: vec![] }),
-            csvschema: None,
-        };
+        let mut schema = Schema { fixedwidthschema: None, csvschema: None };
 
-        let mut temp_line = Line {
-            linetype: String::new(),
-            maxlength: 0,
-            occurs: String::new(),
-            cell: vec![],
-            minlength: 0,
-            padcharacter: String::from(" "),
-        };
+        let mut temp_line = Line { padcharacter: String::from(" "), ..Default::default() };
         let mut in_line = false;
         let mut in_cell = false;
         let mut temp_format: Option<Format> = None;
@@ -90,6 +82,8 @@ impl Schema {
             match e {
                 Ok(XmlEvent::StartElement { name, attributes, .. }) => match name.local_name.as_str() {
                     "fixedwidthschema" => {
+                        schema.fixedwidthschema =
+                            Some(FixedWidthSchema { lineseparator: "\n".to_string(), ..Default::default() });
                         for attr in attributes {
                             if attr.name.local_name == "lineseparator" {
                                 if let Some(fixed_width_schema) = &mut schema.fixedwidthschema {
@@ -100,14 +94,7 @@ impl Schema {
                     }
                     "line" => {
                         in_line = true;
-                        temp_line = Line {
-                            linetype: String::new(),
-                            maxlength: 0,
-                            occurs: String::new(),
-                            cell: vec![],
-                            minlength: 0,
-                            padcharacter: String::from(" "),
-                        };
+                        temp_line = Line { padcharacter: String::from(" "), ..Default::default() };
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
                                 "linetype" => {
@@ -130,33 +117,30 @@ impl Schema {
                     }
                     "cell" if in_line => {
                         in_cell = true;
-                        let mut cell_name = String::new();
-                        let mut cell_length = 0;
-                        let mut cell_alignment = String::new();
-                        let mut cell_padcharacter = temp_line.padcharacter.to_owned();
+
+                        let mut temp_cell =
+                            Cell { padcharacter: temp_line.padcharacter.to_owned(), ..Default::default() };
 
                         for attr in attributes {
                             match attr.name.local_name.as_str() {
-                                "name" => cell_name = attr.value,
-                                "length" => cell_length = attr.value.parse().unwrap_or(0),
-                                "alignment" => cell_alignment = attr.value,
-                                "padcharacter" => cell_padcharacter = attr.value,
+                                "name" => temp_cell.name = attr.value,
+                                "length" => temp_cell.length = attr.value.parse().unwrap_or(0),
+                                "alignment" => temp_cell.alignment = attr.value,
+                                "padcharacter" => temp_cell.padcharacter = attr.value,
                                 _ => (),
                             }
                         }
 
-                        end_cell += cell_length;
+                        end_cell += temp_cell.length;
 
                         temp_line.cell.push(Cell {
-                            name: cell_name,
-                            length: cell_length,
-                            start: end_cell - cell_length,
+                            name: temp_cell.name,
+                            length: temp_cell.length,
+                            start: end_cell - temp_cell.length,
                             end: end_cell,
-                            format: None,
-                            linecondition_type: None,
-                            linecondition_pattern: None,
-                            alignment: cell_alignment,
-                            padcharacter: cell_padcharacter,
+                            alignment: temp_cell.alignment,
+                            padcharacter: temp_cell.padcharacter,
+                            ..Default::default()
                         });
                     }
                     "format" if in_cell => {
@@ -219,6 +203,8 @@ impl Schema {
         Ok(schema)
     }
 
+    /// Get all line conditions from the schema
+    /// Returns a vector of tuples with the line type and the cells with conditions
     pub fn get_line_conditions(&self) -> Vec<(String, std::vec::Vec<Cell>)> {
         let binding = self.get_binding();
         binding
@@ -236,6 +222,8 @@ impl Schema {
             .collect()
     }
 
+    /// Get the first line without conditions
+    /// Returns a tuple with the line type and the line without conditions or None if there is more than one line without conditions
     pub fn get_first_line_without_condition(&self) -> Option<(String, Line)> {
         let binding = self.get_binding();
         let lines_without_condition: Vec<_> = binding
@@ -256,27 +244,33 @@ impl Schema {
         }
     }
 
+    /// Get the schema type
     pub fn get_schema_type(&self) -> &str {
         if self.fixedwidthschema.is_some() {
             "fixedwidthschema"
         } else {
-            // TODO: implement more schemes
-            "csvschema"
-            // delimitedschema, jsonschema, ...
+            // TODO: implement for CSV schema
+            // "csvschema"
+            todo!("Schema csvschema not implemented yet");
         }
     }
 
+    /// Get the line by linetype
+    /// Returns the line or None if the linetype is not found
     pub fn get_line_by_linetype(&self, linetype: &str) -> Option<Line> {
         let binding = self.get_binding();
         let line = binding.lines.iter().find(|line| line.linetype == linetype).cloned();
         line
     }
 
+    /// Get the newline characters
+    /// Example: "\n", "\r\n", ...
     pub fn get_newline_characters(&self) -> String {
         let binding = self.get_binding();
         binding.lineseparator
     }
 
+    /// Get binding schema (fixed width or csv)
     fn get_binding(&self) -> FixedWidthSchema {
         // For now it is only implemented for fixed width scheme.
         // TODO: implement for CSV schema (should be equal to fixed width)
@@ -288,6 +282,7 @@ impl Schema {
         binding
     }
 
+    /// Find the line type that matches the line condition
     pub fn find_matching_schema_linetype(
         &self, line_text: &str, schema_lines_with_condition: &Vec<(String, Vec<Cell>)>,
     ) -> Option<(String, Line)> {
@@ -340,6 +335,24 @@ impl Schema {
         line.map(|line| (match_line_name.to_owned(), line))
     }
 
+    /// Validate a line
+    /// Returns:
+    /// - crate::parser::ProcessedLineOk    -> if the line is valid
+    /// - crate::parser::ProcessedLineError -> if the line is invalid
+    ///
+    /// The ProcessedLineOk contains:
+    /// - line_number: the line number
+    /// - cell_values: the cell values
+    /// - linetype: the line type
+    ///
+    /// The ProcessedLineError contains:
+    /// - line_number: the line number
+    /// - message: the error message
+    ///
+    /// The error message format is:
+    /// [err:xxx]|line|message -> for line errors
+    /// [err:xxx]|cellname|ctype|message -> for cell errors
+    ///
     pub fn validate_line(&self, line_number: usize, line_text: String) -> Result<ProcessedLineOk, ProcessedLineError> {
         let schema_lines_with_condition: Vec<(String, Vec<Cell>)> = self.get_line_conditions().to_owned();
 
@@ -397,8 +410,6 @@ impl Schema {
             }
 
             Ok(ProcessedLineOk { line_number, cell_values, linetype })
-        } else if self.get_schema_type() == "delimitedschema" {
-            todo!("Delimited schema not implemented yet");
         } else if self.get_schema_type() == "csvschema" {
             todo!("CSV schema not implemented yet");
         } else {
@@ -406,6 +417,11 @@ impl Schema {
         }
     }
 
+    /// Validate a cell
+    /// Returns:
+    /// - Ok(cell_value) 'cell_value' as String
+    /// - Err(message)
+    ///
     fn validate_cell(cell: &Cell, line_text: &str) -> Result<String, String> {
         let cell_name = &cell.name;
         let mut cell_alignment = cell.alignment.to_owned();
@@ -415,7 +431,7 @@ impl Schema {
         let cell_value = match cell_value {
             Some(cell_value) => cell_value,
             None => {
-                return Err(format!("[err:003]|{}|invalid range [{}]-[{}]", cell_name, cell.start, cell.end));
+                return Err(format!("[err:003]|{}|range|invalid [{}]-[{}]", cell_name, cell.start, cell.end));
             }
         };
         if let Some(format) = &cell.format {
@@ -453,7 +469,7 @@ impl Schema {
                         return Ok(cell_value.to_string());
                     }
                     Err(_) => {
-                        return Err(format!("[err:004]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                        return Err(format!("[err:004]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
                     }
                 }
             } else if format.ctype == "string" {
@@ -462,7 +478,7 @@ impl Schema {
                 if re.is_match(cell_value) {
                     return Ok(cell_value.to_string());
                 } else {
-                    return Err(format!("[err:005]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                    return Err(format!("[err:005]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
                 }
             } else if format.ctype == "number" {
                 let formatter = decimal_format::DecimalFormat::new(&format.pattern).unwrap();
@@ -471,7 +487,7 @@ impl Schema {
                         return Ok(cell_value.to_string());
                     }
                     Err(_) => {
-                        return Err(format!("[err:006]|{}|{}|pattern:{}", cell_name, format.ctype, format.pattern));
+                        return Err(format!("[err:006]|{}|{}|pattern:[{}]", cell_name, format.ctype, format.pattern));
                     }
                 }
             }
@@ -479,7 +495,6 @@ impl Schema {
         Ok(cell_value.to_string())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -489,7 +504,6 @@ mod tests {
     #[test]
     fn test_fixedwidthschema() {
         let schema: Schema = Schema::new("./example/fixedwidth_schema.xml").expect("Failed to load schema");
-
         assert!(schema.fixedwidthschema.is_some());
     }
 }
