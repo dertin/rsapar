@@ -4,6 +4,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+/// Represents a decimal format pattern and provides methods for validating numbers against the pattern.
 #[derive(Clone)]
 pub struct DecimalFormat {
     positive_regex: Regex,
@@ -14,8 +15,16 @@ static DECIMAL_FORMAT_CACHE: OnceLock<Mutex<HashMap<String, DecimalFormat>>> = O
 
 /// Convert DecimalFormat (Java) pattern to regex.
 /// @see: [DecimalFormat](https://docs.oracle.com/javase/8/docs/api/java/text/DecimalFormat.html)
-
 impl DecimalFormat {
+    /// Creates a new DecimalFormat instance with the specified pattern.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The pattern string in the DecimalFormat (Java) format.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the DecimalFormat instance if the pattern is valid, or an error message if the pattern is invalid.
     pub fn new(pattern: &str) -> Result<Self, String> {
         let cache = DECIMAL_FORMAT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         let mut cache_guard = cache.lock().unwrap();
@@ -77,7 +86,7 @@ impl DecimalFormat {
             Err("Input does not match pattern")
         }
     }
-
+    /// Converts a DecimalFormat pattern to a regex pattern.
     fn pattern_to_regex(pattern: &str) -> String {
         let mut regex_pattern = "^".to_string();
         let mut in_quotes = false;
@@ -98,8 +107,8 @@ impl DecimalFormat {
                 match c {
                     '0' => regex_pattern.push_str("\\d"),  // Match a digit.
                     '#' => regex_pattern.push_str("\\d?"), // Match an optional digit.
-                    ',' => regex_pattern.push_str("\\,"),
-                    '.' => regex_pattern.push_str("\\."),
+                    ',' => regex_pattern.push_str("\\,"),  
+                    '.' => regex_pattern.push_str("\\."),  
                     ';' => regex_pattern.push_str("\\;"),
                     '¤' => regex_pattern.push_str("\\$"), /* TODO: Add the international */
                     // currency symbol.
@@ -111,7 +120,6 @@ impl DecimalFormat {
         regex_pattern
     }
 }
-
 
 
 #[cfg(test)]

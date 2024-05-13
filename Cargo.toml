@@ -14,7 +14,7 @@ rust-version = "1.70.0"
 [dependencies]
 xml-rs="0.8.20"
 crossbeam = "0.8.4"
-anyhow = "1.0.82"
+anyhow = "1.0.83"
 chrono = "0.4.38"
 regex = "1.10.4"
 indexmap = "2.2.6"

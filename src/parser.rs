@@ -25,22 +25,24 @@ pub struct ProcessedLineError {
     pub line_number: usize,
     pub message: String,
 }
+
 #[derive(Debug)]
 pub struct ReadLine {
     pub line_number: usize,
     pub line_content: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ParserConfig {
     pub file_path: String,
     pub file_schema: String,
 }
+
 #[derive(Debug)]
 struct FileBuffer<R: BufRead> {
     reader: R,
     current_line: usize,
-    newline_characters: Vec<u8>,
+    newline_characters: Vec<u8>, // The newline characters used to separate lines
     buf: Vec<u8>,
     finished: bool,
 }
@@ -49,7 +51,7 @@ struct FileBuffer<R: BufRead> {
 pub struct Parser {
     pub config: ParserConfig,
     pub schema: schema::Schema,
-    file_buffer: FileBuffer<BufReader<File>>,
+    file_buffer: FileBuffer<BufReader<File>>, // File buffer for reading lines from the input file
 }
 
 impl<R: BufRead> FileBuffer<R> {
@@ -64,6 +66,7 @@ impl<R: BufRead> FileBuffer<R> {
     }
 }
 
+/// This implementation is specialized for reading lines from a file with custom newline characters.
 impl<R: BufRead> Iterator for FileBuffer<R> {
     type Item = std::io::Result<ReadLine>;
 
@@ -133,8 +136,21 @@ impl<R: BufRead> Iterator for FileBuffer<R> {
     }
 }
 
+/// The `Parser` struct represents a parser for a specific file format.
+/// It provides methods for initializing the parser, iterating over the lines of the file,
+/// and processing each line according to a specified schema.
 impl Parser {
+    /// Creates a new `Parser` instance with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The configuration for the parser, including the file path and schema.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the `Parser` instance if successful, or an `Error` if an error occurred.
     pub fn new(config: ParserConfig) -> Result<Self, Error> {
+        // Open the file specified in the configuration
         let file = File::open(&config.file_path).context("Failed to open file");
         let file = match file {
             Ok(file) => file,
@@ -142,8 +158,11 @@ impl Parser {
                 return Err(err);
             }
         };
+
+        // Create a buffered reader for efficient reading of the file
         let reader = BufReader::new(file);
 
+        // Create a new schema instance based on the file schema specified in the configuration
         let schema = schema::Schema::new(&config.file_schema);
         let schema = match schema {
             Ok(schema) => schema,
@@ -152,20 +171,38 @@ impl Parser {
             }
         };
 
+        // Get the newline characters defined in the schema
         let schema_line_newline_characters = schema.get_newline_characters();
 
+        // Create a file buffer to handle reading and processing of lines
         let file_buffer = FileBuffer::new(reader, schema_line_newline_characters);
 
         Ok(Self { config, schema, file_buffer })
     }
 
+    /// Returns an iterator over the lines of the file.
+    ///
+    /// This method does not process the lines according to the schema.
+    /// The schema attribute "lineseparator" is used for the line break.
+    /// Use the `iter_mut` method to process each line according to the schema.
+    ///
+    /// # Returns
+    ///
+    /// An iterator that yields each line of the file as a `Result` containing either a `ReadLine` or an `std::io::Error`.
     pub fn lines(&mut self) -> impl Iterator<Item = Result<ReadLine, std::io::Error>> + '_ {
         std::iter::from_fn(move || self.file_buffer.next())
     }
 
+    /// Returns an iterator that processes each line of the file according to the schema.
+    ///
+    /// # Returns
+    ///
+    /// An iterator that yields each processed line as a `Result` containing either a `ProcessedLineOk` or a `ProcessedLineError`.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = Result<ProcessedLineOk, ProcessedLineError>> + '_ {
+        // Clone the schema to ensure each iteration uses a separate instance
         let schema = self.schema.clone();
 
+        // Map each line of the file to a processed line based on the schema validation
         self.lines().map(move |result_read_line| {
             let read_line = match result_read_line {
                 Ok(read_line) => read_line,
@@ -184,25 +221,28 @@ impl Parser {
     }
 }
 
-
-
 #[cfg(test)]
+/// Module containing tests for the parser module.
 mod tests {
-    use std::thread;
     use crossbeam::channel::{unbounded, Receiver, Sender};
     use rayon::iter::{ParallelBridge, ParallelIterator};
+    use std::thread;
 
     use super::*;
 
+    /// Test function for the parser module.
     #[test]
     fn test_parser() {
+        // Create a ParserConfig with file paths for data and schema files.
         let config = ParserConfig {
             file_path: "./example/fixedwidth_data.txt".to_string(),
             file_schema: "./example/fixedwidth_schema.xml".to_string(),
         };
 
+        // Create a new Parser instance with the given config.
         let mut parser = Parser::new(config).unwrap();
 
+        // Iterate over each line in the parser and process it.
         for line_result in parser.iter_mut() {
             match line_result {
                 Ok(processed_line) => println!("{:?}", processed_line),
@@ -211,8 +251,10 @@ mod tests {
         }
     }
 
+    /// Test function for the parser module using multiple threads.
     #[test]
     fn test_parser_thread() {
+        // Create a ParserConfig with file paths for data and schema files.
         let config = ParserConfig {
             file_path: "./example/fixedwidth_data.txt".to_string(),
             file_schema: "./example/fixedwidth_schema.xml".to_string(),
@@ -220,12 +262,17 @@ mod tests {
 
         let n_workers = 4;
 
+        // Create a new Parser instance with the given config.
         let mut parser = Parser::new(config).unwrap();
 
+        // Define a type for line number and text.
         type LineNumberAndText = (usize, String);
 
+        // Create a channel for sending and receiving line number and text.
         let (sender, receiver): (Sender<LineNumberAndText>, Receiver<LineNumberAndText>) = unbounded();
         let mut handles = vec![];
+
+        // Spawn worker threads to process lines.
         for _ in 0..n_workers {
             let receiver = receiver.clone();
             let schema = parser.schema.clone();
@@ -244,8 +291,8 @@ mod tests {
             }));
         }
 
+        // Iterate over each line in the parser and send it to the worker threads.
         let lines = parser.lines();
-
         for line_result in lines {
             let line_result = match line_result {
                 Ok(line_result) => line_result,
@@ -265,6 +312,7 @@ mod tests {
         }
         drop(sender);
 
+        // Collect the return errors from the worker threads.
         let mut return_errors: Vec<ProcessedLineError> = Vec::new();
         for handle in handles {
             let results = handle.join().expect("Failed to join thread");
@@ -273,21 +321,26 @@ mod tests {
             }
         }
 
+        // Print the return errors, if any.
         if !return_errors.is_empty() {
             println!("Errors: {:?}", return_errors);
         }
     }
 
+    /// Test function for the parser module using parallel iteration.
     #[test]
     fn test_parser_iter_par() {
+        // Create a ParserConfig with file paths for data and schema files.
         let config = ParserConfig {
             file_path: "./example/fixedwidth_data.txt".to_string(),
             file_schema: "./example/fixedwidth_schema.xml".to_string(),
         };
 
+        // Create a new Parser instance with the given config.
         let mut parser = Parser::new(config).unwrap();
         let schema = parser.schema.clone();
 
+        // Iterate over each line in the parser in parallel and process it.
         parser
             .lines()
             .par_bridge()
@@ -319,5 +372,4 @@ mod tests {
                 }
             });
     }
-
 }
